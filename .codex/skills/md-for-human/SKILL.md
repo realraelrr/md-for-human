@@ -36,6 +36,9 @@ conda env create -f environment.yml
 conda run -n md-for-human md-for-human --help
 ```
 
+If the named conda environment does not exist but another project environment exposes
+`md-for-human --help`, use that environment and report the choice in the handoff.
+
 For an existing checkout, refresh the editable install when imports or console scripts are stale:
 
 ```bash
@@ -57,6 +60,12 @@ Preview a Markdown directory:
 
 ```bash
 md-for-human path/to/agent-output -o /tmp/md-for-human-preview --overwrite --no-open
+```
+
+Run the same preview without activating the environment:
+
+```bash
+conda run -n md-for-human md-for-human path/to/agent-output -o /tmp/md-for-human-preview --overwrite --no-open
 ```
 
 Preview a single Markdown file:
@@ -83,6 +92,18 @@ md-for-human --help
 
 Success means tests pass, the smoke site builds, and the CLI help displays `--output`,
 `--no-open`, and `--overwrite`.
+
+## Post-Build Checks
+
+After building a site for the user, verify:
+
+- expected `.html` files exist
+- `index.html` starts with `<!DOCTYPE html>` and contains site navigation
+- local Markdown links are rewritten to `.html`
+- referenced local assets exist in the output
+
+The tool copies referenced local assets, not every unreferenced file in the source tree. Mention
+that behavior if the user expected a complete static asset mirror.
 
 ## Safety Rules
 
