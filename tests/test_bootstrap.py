@@ -28,3 +28,16 @@ def test_pyproject_declares_static_quality_tools():
 
     assert '"ruff>=0.8,<1"' in contents
     assert '"mypy>=1.13,<2"' in contents
+
+
+def test_agent_skill_entrypoints_share_root_skill_document():
+    project_root = Path(__file__).resolve().parents[1]
+    root_skill = project_root / "SKILL.md"
+    root_contents = root_skill.read_text(encoding="utf-8")
+
+    for relative_path in (
+        ".codex/skills/md-for-human/SKILL.md",
+        ".claude/skills/md-for-human/SKILL.md",
+    ):
+        skill_entrypoint = project_root / relative_path
+        assert skill_entrypoint.read_text(encoding="utf-8") == root_contents

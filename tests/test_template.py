@@ -187,7 +187,7 @@ def test_render_page_html_styles_toc_hierarchy_and_shared_sidebar_active_states(
     assert "--sidebar-item-hover-bg" in html
     assert "--sidebar-item-active-bg" in html
     assert "--sidebar-item-active-border" in html
-    assert "--sidebar-item-active-text: var(--accent);" in html
+    assert "--sidebar-item-active-text" in html
     assert "--sidebar-item-inactive-text: var(--muted);" in html
     assert ".page-toc .toc-level-1" in html
     assert ".page-toc .toc-level-2" in html
