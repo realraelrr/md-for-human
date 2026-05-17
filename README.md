@@ -27,7 +27,7 @@ python -m pip install -e . --no-build-isolation
 Build a site from the sample fixture:
 
 ```bash
-md-for-human tests/fixtures/sample_site -o /tmp/md-for-human-sample-site --overwrite --no-open
+md-for-human tests/fixtures/sample_site -o /tmp/md-for-human-sample-site --overwrite --verify --no-open
 ```
 
 Build from a directory and open the result:
@@ -54,12 +54,30 @@ Canonical checks:
 
 ```bash
 python -m pytest -q
-python -m md_for_human tests/fixtures/sample_site -o /tmp/md-for-human-sample-site --overwrite --no-open
+python -m md_for_human tests/fixtures/sample_site -o /tmp/md-for-human-sample-site --overwrite --verify --no-open
 md-for-human --help
 ```
 
 The package uses a `src/` layout. The top-level `md_for_human/` package is a local bootstrap shim
 so `python -m md_for_human` works from a checkout before installation.
+
+## Agent-Friendly Output
+
+Successful builds print a stable summary:
+
+```text
+Built site at: ...
+Output directory: ...
+Pages: ...
+Assets copied: ...
+Warnings: ...
+Browser opened: yes/no
+Verification: passed
+```
+
+Every build also writes `.md-for-human/manifest.json` inside the output directory with `entry_page`,
+`pages`, `copied_assets`, and `warnings`. Use `--verify` for structural checks and
+`--fail-on-warning` when warnings should make automation fail.
 
 ## Skill Integration
 

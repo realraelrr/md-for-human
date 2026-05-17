@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -21,6 +22,8 @@ def test_python_m_md_for_human_help_displays_expected_options():
     assert "--output" in result.stdout
     assert "--no-open" in result.stdout
     assert "--overwrite" in result.stdout
+    assert "--verify" in result.stdout
+    assert "--fail-on-warning" in result.stdout
 
 
 def test_main_builds_site_without_opening_browser_when_no_open(
@@ -42,22 +45,30 @@ def test_main_builds_site_without_opening_browser_when_no_open(
     assert result == 0
     assert opener_calls == []
     assert (output_dir / "index.html").exists()
+    assert "Built site at:" in stdout.getvalue()
+    assert "Output directory:" in stdout.getvalue()
+    assert "Pages: 5" in stdout.getvalue()
+    assert "Assets copied: 1" in stdout.getvalue()
+    assert "Warnings: 0" in stdout.getvalue()
+    assert "Browser opened: no" in stdout.getvalue()
     assert stderr.getvalue() == ""
 
 
 def test_main_opens_browser_once_on_success(sample_site_copy: Path, tmp_path: Path):
     opener_calls: list[str] = []
+    stdout = io.StringIO()
     output_dir = tmp_path / "output"
 
     result = main(
         [str(sample_site_copy), "--output", str(output_dir)],
         opener=opener_calls.append,
-        stdout=io.StringIO(),
+        stdout=stdout,
         stderr=io.StringIO(),
     )
 
     assert result == 0
     assert opener_calls == [(output_dir / "index.html").resolve().as_uri()]
+    assert "Browser opened: yes" in stdout.getvalue()
 
 
 def test_main_does_not_open_browser_on_failure(tmp_path: Path):
@@ -263,3 +274,69 @@ def test_main_accepts_single_markdown_file_input(
     assert opener_calls == []
     assert (output_dir / "notes.html").exists()
     assert stderr.getvalue() == ""
+
+
+def test_main_writes_manifest_and_verify_passes(sample_site_copy: Path, tmp_path: Path):
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    output_dir = tmp_path / "output"
+
+    result = main(
+        [str(sample_site_copy), "--output", str(output_dir), "--verify", "--no-open"],
+        opener=lambda *_: None,
+        stdout=stdout,
+        stderr=stderr,
+    )
+    manifest = json.loads(
+        (output_dir / ".md-for-human" / "manifest.json").read_text(encoding="utf-8")
+    )
+
+    assert result == 0
+    assert "Verification: passed" in stdout.getvalue()
+    assert manifest["entry_page"] == "index.html"
+    assert manifest["pages"][0] == "index.html"
+    assert manifest["copied_assets"] == ["images/diagram.png"]
+    assert stderr.getvalue() == ""
+
+
+def test_main_verify_accepts_single_file_entry_page(tmp_path: Path):
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    input_file = tmp_path / "notes.md"
+    input_file.write_text("# Notes\n\nOne file.\n", encoding="utf-8")
+    output_dir = tmp_path / "output"
+
+    result = main(
+        [str(input_file), "--output", str(output_dir), "--verify", "--no-open"],
+        opener=lambda *_: None,
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    assert result == 0
+    assert (output_dir / "notes.html").exists()
+    assert "Verification: passed" in stdout.getvalue()
+    assert stderr.getvalue() == ""
+
+
+def test_main_fail_on_warning_returns_error_after_reporting_warnings(tmp_path: Path):
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    opener_calls: list[str] = []
+    input_dir = tmp_path / "docs"
+    input_dir.mkdir()
+    (input_dir / "page.md").write_text("# Page\n\n![Missing](missing.png)\n", encoding="utf-8")
+
+    result = main(
+        [str(input_dir), "--output", str(tmp_path / "output"), "--fail-on-warning"],
+        opener=opener_calls.append,
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    assert result == 1
+    assert opener_calls == []
+    assert "Browser opened: no" in stdout.getvalue()
+    assert "Warnings: 1" in stdout.getvalue()
+    assert "Missing referenced asset: missing.png" in stderr.getvalue()
+    assert "Failing because warnings were emitted." in stderr.getvalue()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from html.parser import HTMLParser
 import os
 import shutil
 import sys
@@ -39,6 +40,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Delete an existing custom output directory before rebuilding",
     )
+    parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="Run structural checks on the generated site after building",
+    )
+    parser.add_argument(
+        "--fail-on-warning",
+        action="store_true",
+        help="Return a non-zero status if the build emits warnings",
+    )
     return parser
 
 
@@ -63,12 +74,34 @@ def main(
         print(f"Error: {exc}", file=stderr)
         return 1
 
-    print(f"Built site at {result.entry_page}", file=stdout)
+    verification_errors: list[str] = []
+    if args.verify:
+        verification_errors = verify_build_result(result)
+
+    should_fail_on_warning = args.fail_on_warning and bool(result.warnings)
+    browser_opened = False
+    if not args.no_open and not should_fail_on_warning and not verification_errors:
+        opener(result.entry_page.resolve().as_uri())
+        browser_opened = True
+
+    print_build_summary(result, browser_opened, stdout)
     for warning in result.warnings:
         print(f"Warning: {warning}", file=stderr)
 
-    if not args.no_open:
-        opener(result.entry_page.resolve().as_uri())
+    if args.verify:
+        if verification_errors:
+            print("Verification: failed", file=stdout)
+            for error in verification_errors:
+                print(f"Verification error: {error}", file=stderr)
+        else:
+            print("Verification: passed", file=stdout)
+
+    if should_fail_on_warning:
+        print("Failing because warnings were emitted.", file=stderr)
+        return 1
+
+    if verification_errors:
+        return 1
 
     return 0
 
@@ -138,3 +171,72 @@ def remove_existing_path(path: Path) -> None:
         shutil.rmtree(path)
     else:
         path.unlink()
+
+
+def print_build_summary(result, browser_opened: bool, stdout: TextIO) -> None:
+    print(f"Built site at: {result.entry_page}", file=stdout)
+    print(f"Output directory: {result.output_dir}", file=stdout)
+    print(f"Pages: {len(result.pages)}", file=stdout)
+    print(f"Assets copied: {len(result.copied_assets)}", file=stdout)
+    print(f"Warnings: {len(result.warnings)}", file=stdout)
+    print(f"Browser opened: {'yes' if browser_opened else 'no'}", file=stdout)
+
+
+def verify_build_result(result) -> list[str]:
+    errors: list[str] = []
+    entry_relative = result.entry_page.relative_to(result.output_dir).as_posix()
+    if not result.entry_page.exists():
+        errors.append(f"Entry page does not exist: {entry_relative}")
+        return errors
+
+    entry_html = result.entry_page.read_text(encoding="utf-8")
+    if not entry_html.lstrip().startswith("<!DOCTYPE html>"):
+        errors.append(f"Entry page is not an HTML document: {entry_relative}")
+    if 'aria-label="Site navigation"' not in entry_html:
+        errors.append(f"Entry page is missing site navigation: {entry_relative}")
+
+    for page in result.pages:
+        page_path = result.output_dir / page
+        if not page_path.exists():
+            errors.append(f"Expected page missing: {page}")
+            continue
+        html = page_path.read_text(encoding="utf-8")
+        if ".md\"" in html or ".md#" in html:
+            errors.append(f"Markdown link appears unrevised in page: {page}")
+        for target in extract_local_targets(html):
+            if target.startswith("#"):
+                continue
+            target_path = (page_path.parent / target).resolve()
+            if result.output_dir.resolve() not in target_path.parents and target_path != result.output_dir.resolve():
+                continue
+            if not target_path.exists():
+                errors.append(f"Local target missing from {page}: {target}")
+
+    for asset in result.copied_assets:
+        if not (result.output_dir / asset).exists():
+            errors.append(f"Copied asset missing: {asset}")
+
+    if not result.manifest_path.exists():
+        errors.append(".md-for-human/manifest.json is missing")
+
+    return errors
+
+
+class LocalTargetParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.targets: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        for name, value in attrs:
+            if name not in {"href", "src"} or not value:
+                continue
+            if value.startswith(("http://", "https://", "mailto:", "tel:", "data:")):
+                continue
+            self.targets.append(value.split("?", 1)[0].split("#", 1)[0] or value)
+
+
+def extract_local_targets(html: str) -> list[str]:
+    parser = LocalTargetParser()
+    parser.feed(html)
+    return parser.targets

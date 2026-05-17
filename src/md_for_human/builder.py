@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from html import escape
 from pathlib import Path, PurePosixPath
@@ -17,6 +18,9 @@ class BuildResult:
     output_dir: Path
     entry_page: Path
     warnings: list[str]
+    pages: list[str]
+    copied_assets: list[str]
+    manifest_path: Path
 
 
 def build_site(input_dir: Path, output_dir: Path) -> BuildResult:
@@ -31,6 +35,7 @@ def build_site(input_dir: Path, output_dir: Path) -> BuildResult:
         warnings.extend(page.warnings)
 
     manifest.output_dir.mkdir(parents=True, exist_ok=True)
+    pages: list[str] = []
     for page in ordered_pages:
         page.full_html = render_page_html(
             page,
@@ -39,17 +44,31 @@ def build_site(input_dir: Path, output_dir: Path) -> BuildResult:
             manifest.entry_output_path,
         )
         write_output_file(manifest.output_dir / page.document.output_path, page.full_html)
+        pages.append(page.document.output_path.as_posix())
 
     referenced_assets = {
         asset_path for page in ordered_pages for asset_path in page.referenced_assets
     }
-    for asset_path in referenced_assets:
+    copied_assets: list[str] = []
+    for asset_path in sorted(referenced_assets, key=lambda path: path.as_posix()):
         source_asset = manifest.input_dir / asset_path
+        asset_label = asset_path.as_posix()
         if not source_asset.exists():
+            warnings.append(f"Missing referenced asset: {asset_label}")
+            continue
+        if source_asset.is_symlink():
+            warnings.append(f"Skipping symlinked asset: {asset_label}")
+            continue
+        if not asset_stays_inside_root(source_asset, manifest.input_dir):
+            warnings.append(f"Skipping asset outside input tree after resolving: {asset_label}")
+            continue
+        if not source_asset.is_file():
+            warnings.append(f"Skipping referenced asset that is not a file: {asset_label}")
             continue
         destination_asset = manifest.output_dir / asset_path
         destination_asset.parent.mkdir(parents=True, exist_ok=True)
         copy2(source_asset, destination_asset)
+        copied_assets.append(asset_label)
 
     entry_output_path = manifest.entry_output_path
     if manifest.entry_document is None:
@@ -61,11 +80,23 @@ def build_site(input_dir: Path, output_dir: Path) -> BuildResult:
             manifest.entry_output_path,
         )
         write_output_file(manifest.output_dir / entry_output_path, synthetic_page.full_html)
+        pages.insert(0, entry_output_path.as_posix())
+
+    manifest_path = write_agent_manifest(
+        manifest.output_dir,
+        entry_output_path.as_posix(),
+        pages,
+        copied_assets,
+        warnings,
+    )
 
     return BuildResult(
         output_dir=manifest.output_dir,
         entry_page=manifest.output_dir / entry_output_path,
         warnings=warnings,
+        pages=pages,
+        copied_assets=copied_assets,
+        manifest_path=manifest_path,
     )
 
 
@@ -94,3 +125,35 @@ def build_synthetic_landing_page(manifest, ordered_pages: list[RenderedPage]) ->
 def write_output_file(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+
+
+def asset_stays_inside_root(path: Path, root: Path) -> bool:
+    resolved_path = path.resolve()
+    resolved_root = root.resolve()
+    return resolved_path == resolved_root or resolved_root in resolved_path.parents
+
+
+def write_agent_manifest(
+    output_dir: Path,
+    entry_page: str,
+    pages: list[str],
+    copied_assets: list[str],
+    warnings: list[str],
+) -> Path:
+    manifest_path = output_dir / ".md-for-human" / "manifest.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "entry_page": entry_page,
+                "pages": pages,
+                "copied_assets": copied_assets,
+                "warnings": warnings,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return manifest_path
