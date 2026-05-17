@@ -4,25 +4,9 @@
 
 [English README](README.md)
 
-Markdown 是源文件。HTML 是渲染产物。中间应该是确定性的转换流程。
+`md-for-human` 把 Markdown 视为 agent 编写的、可长期维护的源文件，把 HTML 视为给人类阅读的确定性渲染产物。Agent 继续写易于编辑、diff、审查和复用的内容；人类获得带排版、导航、本地链接重写、资产处理、结构校验和 manifest 的 HTML 阅读站点。
 
-`md-for-human` 把 Markdown 视为 agent 编写的、可长期维护的 source of truth，把 HTML 视为给人类阅读的确定性 artifact。Agent 继续写最适合编辑、diff、审查和复用的格式；人类获得带导航、排版、本地链接重写、资产处理、结构校验和 manifest 的 HTML 阅读站点。
-
-不要再把 agent token 花在手写 HTML 上。
-
-## 为什么需要它
-
-这不是一个 “Markdown vs HTML” 项目，而是在定义 source/artifact 边界：
-
-- **Markdown 是 source of truth**：可编辑、可 diff、可审查，也方便 agent 继续消费和修改。
-- **HTML 是 rendered artifact**：适合阅读、导航、分享和视觉验收。
-- **renderer 是编译器**：确定性、可脚本化、可重复运行、可验证，且不消耗模型 token。
-
-让 agent 直接生成精致 HTML，会把“内容表达”和“视觉表现”混在同一次生成里。token 成本只是其中一个问题；更大的风险是语义漂移：模型为了让页面好看，可能会重组、压缩、装饰或重新解释原始内容。
-
-`md-for-human` 采取相反的立场：
-
-> 默认不重新解释。不制造语义漂移。渲染你已经写好的 Markdown。
+这不是 “Markdown vs HTML” 的争论，而是在明确 source/artifact 边界：agent 写出的 Markdown 是 source of truth，renderer 把它确定性地编译成 HTML，默认不重新解释内容。让 agent 直接生成精致 HTML，会把内容表达和视觉表现混在一次生成里，增加语义漂移风险。`md-for-human` 的目标是渲染你已经写好的 Markdown。
 
 ## 它做什么
 
@@ -111,8 +95,7 @@ Verification: passed
 
 ## Skill 集成
 
-仓库内置 Codex/agent skill：
-[`.codex/skills/md-for-human/SKILL.md`](.codex/skills/md-for-human/SKILL.md)。
+仓库内置 agent skill：[SKILL.md](SKILL.md)。`.codex/skills/md-for-human/` 和 `.claude/skills/md-for-human/` 下的入口都指向这份根目录 skill 文档。
 
 当 agent 需要把 Markdown 交付物转成人类可读 HTML 站点时，使用这个 skill。Skill 是 agent-facing 主协议；JSON/manifest 只是辅助验证和交付审计的证据。
 
@@ -121,6 +104,8 @@ Verification: passed
 标准检查：
 
 ```bash
+ruff check .
+mypy --strict src
 python -m pytest -q
 python -m md_for_human tests/fixtures/sample_site -o /tmp/md-for-human-sample-site --overwrite --verify --no-open
 md-for-human --help
