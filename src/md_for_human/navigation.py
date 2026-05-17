@@ -47,5 +47,4 @@ def build_navigation(
             ordered_pages[index + 1].document if index + 1 < len(ordered_pages) else None
         )
 
-    manifest.nav_tree = top_level_nodes
     return top_level_nodes, ordered_pages

@@ -9,7 +9,7 @@ from pygments.formatters import HtmlFormatter
 from md_for_human.models import NavNode, RenderedPage
 
 
-PYGMENTS_CSS = HtmlFormatter(style="native", cssclass="highlight").get_style_defs(
+PYGMENTS_CSS = HtmlFormatter(style="native", cssclass="highlight").get_style_defs(  # type: ignore[no-untyped-call]
     ".article .highlight"
 )
 

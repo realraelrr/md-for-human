@@ -9,13 +9,16 @@ description = "Turn agent-generated Markdown into human-friendly HTML reading si
 requires-python = ">=3.11"
 license = "MIT"
 dependencies = [
-  "markdown-it-py",
-  "pygments",
+  "markdown-it-py>=3.0,<4",
+  "pygments>=2.17,<3",
 ]
 
 [project.optional-dependencies]
 dev = [
-  "pytest",
+  "mypy>=1.13,<2",
+  "pytest>=8,<9",
+  "ruff>=0.8,<1",
+  "types-Pygments>=2.19,<3",
 ]
 
 [project.scripts]
@@ -29,3 +32,10 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.mypy]
+strict = true
+python_version = "3.11"

@@ -7,7 +7,7 @@ from pathlib import Path, PurePosixPath
 from shutil import copy2
 
 from md_for_human.discovery import discover_site
-from md_for_human.models import Document, RenderedPage
+from md_for_human.models import Document, RenderedPage, SiteManifest
 from md_for_human.navigation import build_navigation
 from md_for_human.render_markdown import render_document
 from md_for_human.template import render_page_html
@@ -100,7 +100,9 @@ def build_site(input_dir: Path, output_dir: Path) -> BuildResult:
     )
 
 
-def build_synthetic_landing_page(manifest, ordered_pages: list[RenderedPage]) -> RenderedPage:
+def build_synthetic_landing_page(
+    manifest: SiteManifest, ordered_pages: list[RenderedPage]
+) -> RenderedPage:
     links = "".join(
         f'<li><a href="{escape(page.document.output_path.as_posix(), quote=True)}">{escape(page.title)}</a></li>'
         for page in ordered_pages

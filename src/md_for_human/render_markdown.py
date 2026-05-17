@@ -4,6 +4,7 @@ import html
 import posixpath
 import re
 from pathlib import PurePosixPath
+from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from markdown_it import MarkdownIt
@@ -46,7 +47,7 @@ def render_document(document: Document, manifest: SiteManifest) -> RenderedPage:
         for child in token.children:
             if child.type == "link_open":
                 href = child.attrGet("href")
-                if href:
+                if isinstance(href, str) and href:
                     child.attrSet(
                         "href",
                         _rewrite_local_target(
@@ -59,7 +60,7 @@ def render_document(document: Document, manifest: SiteManifest) -> RenderedPage:
                     )
             elif child.type == "image":
                 src = child.attrGet("src")
-                if src:
+                if isinstance(src, str) and src:
                     child.attrSet(
                         "src",
                         _rewrite_local_target(
@@ -189,7 +190,11 @@ def _relative_output_link(source_output: PurePosixPath, target_output: PurePosix
 
 
 def _render_fence(
-    renderer, tokens: list[Token], index: int, options, env  # pragma: no cover - exercised via render output
+    renderer: Any,  # noqa: ARG001
+    tokens: list[Token],
+    index: int,
+    options: Any,  # noqa: ARG001
+    env: Any,  # noqa: ARG001
 ) -> str:
     token = tokens[index]
     language = token.info.strip().split(maxsplit=1)[0] if token.info.strip() else ""

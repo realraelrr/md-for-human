@@ -74,10 +74,10 @@ def discover_site(input_dir: Path, output_dir: Path) -> SiteManifest:
     )
 
 
-def map_output_path(relative_source_path: PurePosixPath) -> tuple[PurePosixPath, bool]:
+def map_output_path(relative_source_path: PurePosixPath) -> PurePosixPath:
     if relative_source_path.name.lower() in {"readme.md", "index.md"}:
-        return relative_source_path.parent / "index.html", True
-    return relative_source_path.with_suffix(".html"), False
+        return relative_source_path.parent / "index.html"
+    return relative_source_path.with_suffix(".html")
 
 
 def register_document(
@@ -87,7 +87,7 @@ def register_document(
     seen_outputs: dict[str, PurePosixPath],
 ) -> Document:
     relative_source_path = PurePosixPath(file_path.relative_to(root).as_posix())
-    output_path, is_directory_index = map_output_path(relative_source_path)
+    output_path = map_output_path(relative_source_path)
     collision_key = output_path.as_posix().lower()
     previous_path = seen_outputs.get(collision_key)
     if previous_path is not None:
@@ -101,7 +101,6 @@ def register_document(
         source_path=file_path,
         relative_source_path=relative_source_path,
         output_path=output_path,
-        is_directory_index=is_directory_index,
     )
     documents.append(document)
     return document

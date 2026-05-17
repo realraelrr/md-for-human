@@ -10,7 +10,6 @@ class Document:
     relative_source_path: PurePosixPath
     output_path: PurePosixPath
     title: str | None = None
-    is_directory_index: bool = False
 
     @property
     def url(self) -> str:
@@ -60,15 +59,11 @@ class SiteManifest:
     documents: list[Document]
     warnings: list[str] = field(default_factory=list)
     entry_document: Document | None = None
-    synthetic_entry_output_path: PurePosixPath | None = None
-    nav_tree: list[NavNode] = field(default_factory=list)
 
     @property
     def entry_output_path(self) -> PurePosixPath:
         if self.entry_document is not None:
             return self.entry_document.output_path
-        if self.synthetic_entry_output_path is not None:
-            return self.synthetic_entry_output_path
         return PurePosixPath("index.html")
 
     @property

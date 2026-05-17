@@ -18,5 +18,13 @@ def test_pyproject_declares_runtime_render_dependencies():
 
     assert 'name = "md-for-human"' in contents
     assert 'md-for-human = "md_for_human.cli:main"' in contents
-    assert '"markdown-it-py"' in contents
-    assert '"pygments"' in contents
+    assert '"markdown-it-py>=3.0,<4"' in contents
+    assert '"pygments>=2.17,<3"' in contents
+
+
+def test_pyproject_declares_static_quality_tools():
+    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    contents = pyproject.read_text(encoding="utf-8")
+
+    assert '"ruff>=0.8,<1"' in contents
+    assert '"mypy>=1.13,<2"' in contents

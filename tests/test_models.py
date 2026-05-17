@@ -15,7 +15,7 @@ def test_document_tracks_paths_and_url():
     assert document.output_path == PurePosixPath("guide/intro.html")
     assert document.url == "guide/intro.html"
     assert document.source_stem == "intro"
-    assert document.is_directory_index is False
+    assert not hasattr(document, "is_directory_index")
 
 
 def test_nav_node_supports_directory_and_file_shapes():
@@ -23,7 +23,6 @@ def test_nav_node_supports_directory_and_file_shapes():
         source_path=Path("/tmp/sample_site/reference/README.md"),
         relative_source_path=PurePosixPath("reference/README.md"),
         output_path=PurePosixPath("reference/index.html"),
-        is_directory_index=True,
     )
     file_node = NavNode(
         name="Reference",
@@ -74,7 +73,6 @@ def test_manifest_tracks_entry_document_or_synthetic_landing_page():
         source_path=Path("/tmp/sample_site/README.md"),
         relative_source_path=PurePosixPath("README.md"),
         output_path=PurePosixPath("index.html"),
-        is_directory_index=True,
     )
 
     manifest = SiteManifest(
@@ -87,10 +85,11 @@ def test_manifest_tracks_entry_document_or_synthetic_landing_page():
         input_dir=Path("/tmp/sample_site"),
         output_dir=Path("/tmp/output"),
         documents=[],
-        synthetic_entry_output_path=PurePosixPath("index.html"),
     )
 
     assert manifest.entry_output_path == PurePosixPath("index.html")
     assert manifest.has_synthetic_landing_page is False
     assert landing_manifest.entry_output_path == PurePosixPath("index.html")
     assert landing_manifest.has_synthetic_landing_page is True
+    assert not hasattr(landing_manifest, "synthetic_entry_output_path")
+    assert not hasattr(landing_manifest, "nav_tree")

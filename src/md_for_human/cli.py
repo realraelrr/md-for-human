@@ -9,7 +9,7 @@ import webbrowser
 from pathlib import Path
 from typing import Callable, Sequence, TextIO
 
-from md_for_human.builder import build_site
+from md_for_human.builder import BuildResult, build_site
 from md_for_human.discovery import DiscoveryError
 
 
@@ -173,7 +173,7 @@ def remove_existing_path(path: Path) -> None:
         path.unlink()
 
 
-def print_build_summary(result, browser_opened: bool, stdout: TextIO) -> None:
+def print_build_summary(result: BuildResult, browser_opened: bool, stdout: TextIO) -> None:
     print(f"Built site at: {result.entry_page}", file=stdout)
     print(f"Output directory: {result.output_dir}", file=stdout)
     print(f"Pages: {len(result.pages)}", file=stdout)
@@ -182,7 +182,7 @@ def print_build_summary(result, browser_opened: bool, stdout: TextIO) -> None:
     print(f"Browser opened: {'yes' if browser_opened else 'no'}", file=stdout)
 
 
-def verify_build_result(result) -> list[str]:
+def verify_build_result(result: BuildResult) -> list[str]:
     errors: list[str] = []
     entry_relative = result.entry_page.relative_to(result.output_dir).as_posix()
     if not result.entry_page.exists():
@@ -227,7 +227,7 @@ class LocalTargetParser(HTMLParser):
         super().__init__()
         self.targets: list[str] = []
 
-    def handle_starttag(self, tag: str, attrs) -> None:
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         for name, value in attrs:
             if name not in {"href", "src"} or not value:
                 continue
