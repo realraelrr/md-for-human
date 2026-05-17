@@ -75,3 +75,7 @@ require `--overwrite` and are deleted only after validation. The CLI rejects out
 the input directory, inside the input directory, an ancestor of the input directory, the input
 Markdown file, or an ancestor of the input Markdown file. It also protects against final-output
 symlink deletion and symlinked parent aliases that would point back into the input tree.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
