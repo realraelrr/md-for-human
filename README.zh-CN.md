@@ -1,52 +1,31 @@
 # md-for-human
 
-**Agent 写 Markdown，人类读 HTML。md-for-human 连接这两者。**
+把 agent 编写的 Markdown 渲染成可导航的静态 HTML 阅读站点。
 
 [English README](README.md)
 
-`md-for-human` 把 Markdown 视为 agent 编写的、可长期维护的源文件，把 HTML 视为给人类阅读的确定性渲染产物。Agent 继续写易于编辑、diff、审查和复用的内容；人类获得带排版、导航、本地链接重写、资产处理、结构校验和 manifest 的 HTML 阅读站点。
+`md-for-human` 保留 Markdown 作为可编辑源文件，把 HTML 作为阅读产物。它支持目录和单文件输入、侧边栏导航、页面目录、上一页/下一页、本地 Markdown 链接重写、引用资产复制、代码高亮、结构校验，以及用于 agent 交付的 manifest。
 
-这不是 “Markdown vs HTML” 的争论，而是在明确 source/artifact 边界：agent 写出的 Markdown 是 source of truth，renderer 把它确定性地编译成 HTML，默认不重新解释内容。让 agent 直接生成精致 HTML，会把内容表达和视觉表现混在一次生成里，增加语义漂移风险。`md-for-human` 的目标是渲染你已经写好的 Markdown。
-
-## 它做什么
-
-给定一个 Markdown 文件或目录，`md-for-human` 会构建一个静态 HTML 阅读站点：
-
-- 文件夹/站点级渲染
-- 默认打开浏览器预览
-- 侧边栏导航和页面目录
-- 上一页/下一页浏览
-- 本地 Markdown 链接重写
-- 带安全检查的引用资产复制
-- 代码块语法高亮
-- `--verify` 结构校验
-- `--fail-on-warning` 严格 warning 策略
-- `.md-for-human/manifest.json` 用于 agent 审计和交付
-
-它不会改写 Markdown，不会总结内容，不会润色内容，也不会要求 agent 重新设计页面。
+它不会改写、总结或润色 Markdown。
 
 ## 安装
 
-新环境建议使用项目自带的 conda 环境：
+创建并激活项目环境：
 
 ```bash
 conda env create -f environment.yml
 conda activate md-for-human
 ```
 
-如果已经在本地开发环境中，从仓库根目录刷新 editable install：
+只在已激活的 conda 或 virtualenv 中刷新 editable install：
 
 ```bash
-python -m pip install -e . --no-build-isolation
+python -m pip install -e ".[dev]" --no-build-isolation
 ```
+
+不要对系统 Python 执行 editable install。
 
 ## 使用
-
-从示例 fixture 构建站点：
-
-```bash
-md-for-human tests/fixtures/sample_site -o /tmp/md-for-human-sample-site --overwrite --verify --no-open
-```
 
 从目录构建并打开结果：
 
@@ -54,21 +33,29 @@ md-for-human tests/fixtures/sample_site -o /tmp/md-for-human-sample-site --overw
 md-for-human path/to/agent-output
 ```
 
-从单个 Markdown 文件构建：
+从单个 Markdown 文件构建并打开结果：
 
 ```bash
-md-for-human path/to/notes.md -o /tmp/notes-site --no-open
+md-for-human path/to/notes.md -o /tmp/notes-site
 ```
 
-不激活环境时通过 conda 运行：
+不激活环境时运行：
 
 ```bash
-conda run -n md-for-human md-for-human path/to/agent-output --no-open
+conda run -n md-for-human md-for-human path/to/agent-output
 ```
 
-## 面向 Agent 的输出
+从示例 fixture 构建并验证，但不打开浏览器：
 
-构建成功后会打印稳定摘要：
+```bash
+md-for-human tests/fixtures/sample_site -o /tmp/md-for-human-sample-site --overwrite --verify --no-open
+```
+
+`--no-open` 用于 headless 场景，`--verify` 用于结构校验，`--fail-on-warning` 用于严格自动化。
+
+## 输出契约
+
+构建成功会输出：
 
 ```text
 Built site at: ...
@@ -77,10 +64,11 @@ Pages: ...
 Assets copied: ...
 Warnings: ...
 Browser opened: yes/no
-Verification: passed
 ```
 
-每次构建也会在输出目录写入 `.md-for-human/manifest.json`：
+使用 `--verify` 时，摘要还会包含 `Verification: passed` 或 `Verification: failed`。
+
+每次构建都会在输出目录写入 `.md-for-human/manifest.json`：
 
 ```json
 {
@@ -91,13 +79,11 @@ Verification: passed
 }
 ```
 
-使用 `--verify` 做结构校验；当 warning 应该导致自动化失败时，使用 `--fail-on-warning`。
+单文件输入的 `entry_page` 使用源文件 basename，而不是 `index.html`。
 
-## Skill 集成
+## Agent Skill
 
-仓库内置 agent skill：[SKILL.md](SKILL.md)。`.codex/skills/md-for-human/` 和 `.claude/skills/md-for-human/` 下的入口都指向这份根目录 skill 文档。
-
-当 agent 需要把 Markdown 交付物转成人类可读 HTML 站点时，使用这个 skill。Skill 是 agent-facing 主协议；JSON/manifest 只是辅助验证和交付审计的证据。
+Agent 执行协议在 [`SKILL.md`](SKILL.md)。`.codex/skills/md-for-human/` 和 `.claude/skills/md-for-human/` 下的入口都指向该文件。
 
 ## 开发
 
@@ -111,13 +97,13 @@ python -m md_for_human tests/fixtures/sample_site -o /tmp/md-for-human-sample-si
 md-for-human --help
 ```
 
-项目使用 `src/` 布局。顶层 `md_for_human/` 包是本地 bootstrap shim，让 checkout 中的 `python -m md_for_human` 在安装前也能工作。
+项目使用 `src/` 布局。顶层 `md_for_human/` 包是 bootstrap shim，让 `python -m md_for_human` 在安装前也能从 checkout 中运行。
 
-## 安全说明
+## 安全
 
-默认输出目录会自动替换。已有的自定义输出路径必须显式传入 `--overwrite`，并且只会在校验通过后删除。CLI 会拒绝以下输出路径：输入目录本身、输入目录内部、输入目录的祖先目录、输入 Markdown 文件本身、输入 Markdown 文件的祖先目录。它也会防止最终输出 symlink 删除目标目录，以及 symlink 父路径绕回输入树。
+CLI 会拒绝把输出路径设为输入路径、输入树内部或输入路径祖先。自定义输出路径需要 `--overwrite`。
 
-引用资产只有在安全解析到输入树内部时才会被复制。缺失资产、symlink 资产、解析到输入树外的资产、非文件资产都会产生 warning。
+只复制被引用的本地资产。缺失、symlink、越过输入根目录或非文件资产会产生 warning。
 
 ## License
 

@@ -1,63 +1,35 @@
 # md-for-human
 
-**Agents write Markdown. Humans read HTML. md-for-human bridges the gap.**
+Render agent-authored Markdown into a navigable static HTML reading site.
 
 [中文 README](README.zh-CN.md)
 
-`md-for-human` treats Markdown as the durable agent-authored source, and HTML as
-the deterministic human-readable artifact. Agents keep writing content that is
-easy to edit, diff, review, and reuse. Humans get a navigable HTML reading site
-with typography, navigation, local link rewriting, asset handling, verification,
-and a machine-checkable manifest.
+`md-for-human` keeps Markdown as the editable source and produces HTML as the
+readable artifact. It supports folder and single-file inputs, sidebar navigation,
+page tables of contents, previous/next links, local Markdown link rewriting,
+referenced asset copying, code highlighting, verification, and a manifest for
+agent handoff.
 
-This is not a Markdown-vs-HTML argument. It is a source/artifact boundary:
-agent-authored Markdown stays the source of truth, and the renderer compiles it
-without reinterpreting the content. Directly asking an agent to produce polished
-HTML mixes content and presentation in one generation step, increasing the risk
-of semantic drift. `md-for-human` renders the Markdown you wrote.
-
-## What It Does
-
-Given a Markdown file or folder, `md-for-human` builds a static HTML reading
-site:
-
-- folder/site rendering
-- browser preview by default
-- sidebar navigation and page table of contents
-- previous/next page browsing
-- local Markdown link rewriting
-- referenced asset copying with safety checks
-- syntax highlighting for code blocks
-- structural verification with `--verify`
-- warning-aware automation with `--fail-on-warning`
-- `.md-for-human/manifest.json` for agent audit and handoff
-
-It does not rewrite your Markdown, summarize it, embellish it, or ask an agent
-to redesign it.
+It does not rewrite, summarize, or embellish the Markdown.
 
 ## Install
 
-Use the project conda environment when creating a fresh setup:
+Create and activate the project environment:
 
 ```bash
 conda env create -f environment.yml
 conda activate md-for-human
 ```
 
-In an existing local development environment, refresh the editable install from
-this repository root:
+Refresh an editable install only inside an activated conda or virtualenv:
 
 ```bash
-python -m pip install -e . --no-build-isolation
+python -m pip install -e ".[dev]" --no-build-isolation
 ```
+
+Do not run editable install against system Python.
 
 ## Usage
-
-Build a site from the sample fixture:
-
-```bash
-md-for-human tests/fixtures/sample_site -o /tmp/md-for-human-sample-site --overwrite --verify --no-open
-```
 
 Build from a directory and open the result:
 
@@ -65,21 +37,30 @@ Build from a directory and open the result:
 md-for-human path/to/agent-output
 ```
 
-Build from one Markdown file:
+Build from one Markdown file and open the result:
 
 ```bash
-md-for-human path/to/notes.md -o /tmp/notes-site --no-open
+md-for-human path/to/notes.md -o /tmp/notes-site
 ```
 
-Run through conda without activating the environment:
+Run without activating the environment:
 
 ```bash
-conda run -n md-for-human md-for-human path/to/agent-output --no-open
+conda run -n md-for-human md-for-human path/to/agent-output
 ```
 
-## Agent-Friendly Output
+Build and verify the sample fixture without opening a browser:
 
-Successful builds print a stable summary:
+```bash
+md-for-human tests/fixtures/sample_site -o /tmp/md-for-human-sample-site --overwrite --verify --no-open
+```
+
+Use `--no-open` for headless runs, `--verify` for structural checks, and
+`--fail-on-warning` for strict automation.
+
+## Output Contract
+
+Successful builds print:
 
 ```text
 Built site at: ...
@@ -88,11 +69,12 @@ Pages: ...
 Assets copied: ...
 Warnings: ...
 Browser opened: yes/no
-Verification: passed
 ```
 
-Every build also writes `.md-for-human/manifest.json` inside the output
-directory:
+When `--verify` is used, the summary also includes `Verification: passed` or
+`Verification: failed`.
+
+Every build writes `.md-for-human/manifest.json` inside the output directory:
 
 ```json
 {
@@ -103,18 +85,14 @@ directory:
 }
 ```
 
-Use `--verify` for structural checks and `--fail-on-warning` when warnings
-should make automation fail.
+For single-file inputs, `entry_page` uses the source file basename instead of
+`index.html`.
 
-## Skill Integration
+## Agent Skill
 
-This repository includes an agent skill at [`SKILL.md`](SKILL.md). Codex and
-Claude entrypoints in `.codex/skills/md-for-human/` and
-`.claude/skills/md-for-human/` point to the same root skill document.
-
-Use the skill when an agent needs to turn Markdown deliverables into a
-human-readable HTML site. The skill is the agent-facing protocol; JSON/manifest
-output is supporting evidence for verification and handoff.
+The agent-facing protocol lives in [`SKILL.md`](SKILL.md). Codex and Claude skill
+entrypoints in `.codex/skills/md-for-human/` and `.claude/skills/md-for-human/`
+point to that file.
 
 ## Development
 
@@ -129,20 +107,15 @@ md-for-human --help
 ```
 
 The package uses a `src/` layout. The top-level `md_for_human/` package is a
-local bootstrap shim so `python -m md_for_human` works from a checkout before
-installation.
+bootstrap shim so `python -m md_for_human` works from a checkout before install.
 
-## Safety Notes
+## Safety
 
-Existing default output directories are replaced automatically. Existing custom
-output paths require `--overwrite` and are deleted only after validation. The CLI
-rejects output paths that are the input directory, inside the input directory, an
-ancestor of the input directory, the input Markdown file, or an ancestor of the
-input Markdown file. It also protects against final-output symlink deletion and
-symlinked parent aliases that would point back into the input tree.
+The CLI rejects output paths that are the input path, inside the input tree, or
+an ancestor of the input. Custom output paths require `--overwrite`.
 
-Referenced assets are copied only when they resolve safely inside the input
-tree. Missing, symlinked, out-of-root, and non-file assets produce warnings.
+Only referenced local assets are copied. Missing, symlinked, out-of-root, and
+non-file assets produce warnings.
 
 ## License
 
