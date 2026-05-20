@@ -4,6 +4,10 @@ Render agent-authored Markdown into a navigable static HTML reading site.
 
 [中文 README](README.zh-CN.md)
 
+`md-for-human` is an agent output bridge: LLM agents keep Markdown as the source
+of truth, while humans get a local static site that is easier to scan, share,
+and verify.
+
 `md-for-human` keeps Markdown as the editable source and produces HTML as the
 readable artifact. It supports folder and single-file inputs, sidebar navigation,
 page tables of contents, previous/next links, local Markdown link rewriting,
