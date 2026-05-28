@@ -297,58 +297,110 @@ REVIEW_CLIENT_STYLE = """
   font: 0.9rem "Avenir Next", "Helvetica Neue", sans-serif;
 }
 
-body.mdfh-review-rail-open .layout {
-  padding-right: min(24rem, 30vw);
+.mdfh-review-open:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
-.mdfh-review-rail {
-  position: fixed;
-  inset: 0 0 0 auto;
-  width: min(24rem, 30vw);
-  min-width: 20rem;
-  z-index: 51;
-  display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
-  padding: 1rem;
-  overflow: auto;
-  border-left: 1px solid var(--border);
-  background: color-mix(in srgb, var(--panel) 96%, black);
-  box-shadow: -16px 0 44px rgba(0, 0, 0, 0.24);
+.mdfh-review-content {
+  --mdfh-review-gap: clamp(1rem, 2.2vw, 1.5rem);
+  --mdfh-review-comment-width: minmax(15rem, 21rem);
+}
+
+.mdfh-review-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--mdfh-review-comment-width);
+  column-gap: var(--mdfh-review-gap);
+  align-items: start;
+  min-width: 0;
+}
+
+.mdfh-review-body,
+.mdfh-review-comments {
+  min-width: 0;
+}
+
+.mdfh-review-body {
+  grid-column: 1;
+}
+
+.mdfh-review-comments {
+  grid-column: 2;
   font-family: "Avenir Next", "Helvetica Neue", sans-serif;
 }
 
-.mdfh-review-rail[hidden] {
-  display: none !important;
+.mdfh-review-card,
+.mdfh-review-editor,
+.mdfh-review-unplaced {
+  border: 1px solid rgba(250, 204, 21, 0.42);
+  border-left: 3px solid #facc15;
+  border-radius: 0.65rem;
+  background: rgba(250, 204, 21, 0.12);
+  color: var(--text);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.18);
+  font-size: 0.9rem;
+  line-height: 1.45;
 }
 
-.mdfh-review-rail-header,
-.mdfh-review-actions {
+.mdfh-review-card,
+.mdfh-review-editor {
+  padding: 0.7rem 0.75rem;
+}
+
+.mdfh-review-card {
+  cursor: pointer;
+}
+
+.mdfh-review-card:hover,
+.mdfh-review-card.is-active {
+  border-color: #fde68a;
+  background: rgba(250, 204, 21, 0.17);
+}
+
+.mdfh-review-card p,
+.mdfh-review-unplaced p {
+  margin: 0;
+}
+
+.mdfh-review-card small,
+.mdfh-review-editor small,
+.mdfh-review-unplaced small {
+  display: block;
+  margin-top: 0.35rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.mdfh-review-card-actions,
+.mdfh-review-editor-actions {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  justify-content: space-between;
+  gap: 0.45rem;
+  margin-top: 0.6rem;
 }
 
-.mdfh-review-rail-title {
-  font-size: 0.95rem;
-  font-weight: 650;
+.mdfh-review-card button,
+.mdfh-review-editor button,
+.mdfh-review-unplaced button {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.42rem 0.58rem;
+  background: var(--panel-strong);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
 }
 
-.mdfh-review-anchor {
-  max-height: 6.5rem;
-  overflow: auto;
-  border-left: 2px solid var(--accent);
-  padding-left: 0.65rem;
-  color: var(--muted);
-  font-size: 0.86rem;
-  line-height: 1.45;
-  white-space: pre-wrap;
+.mdfh-review-card button:hover,
+.mdfh-review-editor button:hover,
+.mdfh-review-unplaced button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .mdfh-review-comment-input {
   width: 100%;
-  min-height: 7rem;
+  min-height: 6.25rem;
   min-width: 0;
   border: 1px solid var(--border);
   border-radius: 0.55rem;
@@ -359,53 +411,46 @@ body.mdfh-review-rail-open .layout {
   font: inherit;
 }
 
-.mdfh-review-rail button {
-  border: 1px solid var(--border);
-  border-radius: 0.55rem;
-  padding: 0.48rem 0.68rem;
-  background: var(--panel-strong);
-  color: var(--text);
-  cursor: pointer;
-  font: inherit;
-}
-
-.mdfh-review-rail button:hover,
-.mdfh-review-open:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.mdfh-review-list {
-  position: relative;
-  min-height: 55vh;
-  padding-top: 0.35rem;
-}
-
-.mdfh-review-item {
-  position: fixed;
-  right: 1rem;
-  width: calc(min(24rem, 30vw) - 2rem);
-  display: grid;
-  gap: 0.28rem;
-  text-align: left;
-  transition: top 120ms ease;
-}
-
-.mdfh-review-item::before {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: -1rem;
-  width: 1rem;
-  border-top: 1px dashed var(--border);
-}
-
-.mdfh-review-item small {
+.mdfh-review-anchor {
+  max-height: 5rem;
+  overflow: auto;
+  margin-bottom: 0.55rem;
+  border-left: 2px solid #facc15;
+  padding-left: 0.55rem;
   color: var(--muted);
-  line-height: 1.35;
+  font-size: 0.84rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+.mdfh-review-unplaced {
+  margin-bottom: 1rem;
+  padding: 0.8rem;
+}
+
+.mdfh-review-unplaced[hidden] {
+  display: none !important;
+}
+
+.mdfh-review-unplaced-list {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.55rem;
+}
+
+.mdfh-review-unplaced-item {
+  display: grid;
+  gap: 0.35rem;
+  border-top: 1px dashed rgba(250, 204, 21, 0.32);
+  padding-top: 0.55rem;
 }
 
 .mdfh-review-toast {
+  position: fixed;
+  right: 1rem;
+  bottom: 4.1rem;
+  z-index: 52;
+  max-width: min(24rem, calc(100vw - 2rem));
   border: 1px solid var(--border);
   border-radius: 0.55rem;
   padding: 0.6rem 0.7rem;
@@ -431,21 +476,6 @@ body.mdfh-review-rail-open .layout {
   border-radius: 0.25rem;
 }
 
-.mdfh-review-connectors {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  width: 100vw;
-  height: 100vh;
-  pointer-events: none;
-}
-
-.mdfh-review-connectors line {
-  stroke: #facc15;
-  stroke-width: 1.5;
-  stroke-dasharray: 4 4;
-}
-
 @keyframes mdfh-review-flash {
   0% {
     outline: 3px solid rgba(250, 204, 21, 0.95);
@@ -458,21 +488,18 @@ body.mdfh-review-rail-open .layout {
 }
 
 @media (max-width: 960px) {
-  body.mdfh-review-rail-open .layout {
-    padding-right: 0;
+  .mdfh-review-row {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 0.5rem;
   }
 
-  .mdfh-review-rail {
-    inset: auto 0 0 0;
-    width: auto;
-    min-width: 0;
-    max-height: 68vh;
-    border-left: 0;
-    border-top: 1px solid var(--border);
+  .mdfh-review-comments {
+    grid-column: 1;
   }
 
-  .mdfh-review-connectors {
-    display: none;
+  .mdfh-review-card,
+  .mdfh-review-editor {
+    margin-top: 0.35rem !important;
   }
 }
 </style>
@@ -480,24 +507,8 @@ body.mdfh-review-rail-open .layout {
 
 REVIEW_CLIENT_PANEL = """
 <button type="button" class="mdfh-review-open" data-mdfh-review-open>Comment</button>
-<svg class="mdfh-review-connectors" data-mdfh-review-connector-layer
-  aria-hidden="true"></svg>
-<aside class="mdfh-review-rail" data-mdfh-review-rail data-mdfh-review-panel
-  aria-label="Document comments" hidden>
-  <div class="mdfh-review-rail-header">
-    <div class="mdfh-review-rail-title">Comments</div>
-    <button type="button" data-mdfh-review-close>Hide</button>
-  </div>
-  <div class="mdfh-review-anchor" data-mdfh-review-anchor>Document comment</div>
-  <textarea class="mdfh-review-comment-input" data-mdfh-review-comment-input
-    placeholder="Write the requested change and why it matters."></textarea>
-  <div class="mdfh-review-actions">
-    <button type="button" data-mdfh-review-save>Save</button>
-    <button type="button" data-mdfh-review-delete hidden>Delete</button>
-  </div>
-  <div class="mdfh-review-list" data-mdfh-review-list></div>
-  <div class="mdfh-review-toast" data-mdfh-review-toast role="status" hidden></div>
-</aside>
+<div class="mdfh-review-unplaced" data-mdfh-review-unplaced hidden></div>
+<div class="mdfh-review-toast" data-mdfh-review-toast role="status" hidden></div>
 """.strip()
 
 REVIEW_CLIENT_JS = r"""
@@ -505,37 +516,33 @@ REVIEW_CLIENT_JS = r"""
   const token = __MDFH_TOKEN__;
   const apiPrefix = __MDFH_API_PREFIX__;
   const content = document.querySelector("[data-mdfh-content='1']");
-  const rail = document.querySelector("[data-mdfh-review-rail]");
-  if (!content || !rail) {
+  if (!content) {
     return;
   }
 
+  const article = content.closest("[data-doc-card]") || content.parentElement;
   const page = document.body.dataset.mdfhPage || "";
   const sourcePath = document.body.dataset.mdfhSourcePath || "";
   const els = {
     open: document.querySelector("[data-mdfh-review-open]"),
-    connectors: document.querySelector("[data-mdfh-review-connector-layer]"),
-    close: rail.querySelector("[data-mdfh-review-close]"),
-    anchor: rail.querySelector("[data-mdfh-review-anchor]"),
-    comment: rail.querySelector("[data-mdfh-review-comment-input]"),
-    save: rail.querySelector("[data-mdfh-review-save]"),
-    del: rail.querySelector("[data-mdfh-review-delete]"),
-    list: rail.querySelector("[data-mdfh-review-list]"),
-    toast: rail.querySelector("[data-mdfh-review-toast]"),
+    toast: document.querySelector("[data-mdfh-review-toast]"),
+    unplaced: document.querySelector("[data-mdfh-review-unplaced]"),
   };
   const state = {
     artifact: null,
     selectedQuote: "",
     editingId: "",
-    pendingSpan: null,
+    documentMode: false,
+    draftComment: "",
+    pendingSpans: [],
     toastTimer: 0,
     buildVersion: null,
     anchorState: new Map(),
   };
 
-  const normalize = (value) => String(value || "").split(/\s+/).filter(Boolean).join(" ");
   const nowIso = () => new Date().toISOString();
   const clone = (value) => JSON.parse(JSON.stringify(value));
+  prepareReviewLayout();
 
   async function request(path, options = {}) {
     const headers = Object.assign(
@@ -562,18 +569,6 @@ REVIEW_CLIENT_JS = r"""
       source_manifest: ".md-for-human/manifest.json",
       annotations: [],
     };
-  }
-
-  function openRail() {
-    rail.hidden = false;
-    document.body.classList.add("mdfh-review-rail-open");
-    schedulePositioning();
-  }
-
-  function closeRail() {
-    rail.hidden = true;
-    document.body.classList.remove("mdfh-review-rail-open");
-    updateConnectors();
   }
 
   function toast(message, validation = null) {
@@ -606,25 +601,90 @@ REVIEW_CLIENT_JS = r"""
     return state.artifact.annotations;
   }
 
-  function resetForm({ keepQuote = false } = {}) {
-    if (!keepQuote) {
-      clearPendingSpan();
-      state.selectedQuote = "";
-      state.editingId = "";
-      els.anchor.textContent = "Document comment";
+  function pageAnnotations() {
+    return currentAnnotations().filter((annotation) => annotation.page === page);
+  }
+
+  function prepareReviewLayout() {
+    if (!article || content.dataset.mdfhReviewPrepared === "1") {
+      return;
     }
-    els.comment.value = "";
-    els.del.hidden = true;
+    const unplaced = els.unplaced || document.createElement("div");
+    unplaced.className = "mdfh-review-unplaced";
+    unplaced.dataset.mdfhReviewUnplaced = "1";
+    unplaced.hidden = true;
+    article.insertBefore(unplaced, content);
+    els.unplaced = unplaced;
+
+    content.classList.add("mdfh-review-content");
+    Array.from(content.childNodes).forEach((node) => {
+      if (node.nodeType === Node.TEXT_NODE && !node.nodeValue.trim()) {
+        node.remove();
+        return;
+      }
+      if (node.nodeType !== Node.ELEMENT_NODE && node.nodeType !== Node.TEXT_NODE) {
+        return;
+      }
+      const row = document.createElement("div");
+      row.className = "mdfh-review-row";
+      row.dataset.mdfhReviewRow = "1";
+      const body = document.createElement("div");
+      body.className = "mdfh-review-body";
+      body.dataset.mdfhReviewBody = "1";
+      const comments = document.createElement("div");
+      comments.className = "mdfh-review-comments";
+      comments.dataset.mdfhReviewComments = "1";
+      row.append(body, comments);
+      content.insertBefore(row, node);
+      body.appendChild(node);
+    });
+
+    if (!content.querySelector("[data-mdfh-review-row]")) {
+      const row = document.createElement("div");
+      row.className = "mdfh-review-row";
+      row.dataset.mdfhReviewRow = "1";
+      row.innerHTML = '<div class="mdfh-review-body" data-mdfh-review-body="1"></div><div class="mdfh-review-comments" data-mdfh-review-comments="1"></div>';
+      content.appendChild(row);
+    }
+    content.dataset.mdfhReviewPrepared = "1";
+  }
+
+  function resetDraft() {
+    clearPendingSpans();
+    state.selectedQuote = "";
+    state.editingId = "";
+    state.documentMode = false;
+    state.draftComment = "";
+  }
+
+  function startDocumentComment() {
+    resetDraft();
+    state.documentMode = true;
+    renderAnnotations();
+    focusEditor();
   }
 
   function setTargetFromQuote(quote) {
     state.selectedQuote = quote.trim();
     state.editingId = "";
-    els.anchor.textContent = state.selectedQuote || "Document comment";
-    els.comment.value = "";
-    els.del.hidden = true;
-    openRail();
-    els.comment.focus();
+    state.documentMode = false;
+    state.draftComment = "";
+    renderAnnotations();
+    focusEditor();
+  }
+
+  function focusEditor() {
+    window.requestAnimationFrame(() => {
+      const editor = content.querySelector("[data-mdfh-review-comment-input]");
+      if (editor) {
+        editor.focus();
+      }
+    });
+  }
+
+  function currentEditorValue() {
+    const editor = content.querySelector("[data-mdfh-review-comment-input]");
+    return editor ? editor.value.trim() : "";
   }
 
   function captureSelection() {
@@ -633,41 +693,75 @@ REVIEW_CLIENT_JS = r"""
       return;
     }
     const range = selection.getRangeAt(0);
-    if (!content.contains(range.commonAncestorContainer)) {
+    if (!isRangeInsideReviewBody(range)) {
       return;
     }
     const selectedText = selection.toString().trim();
     if (!selectedText) {
       return;
     }
-    clearPendingSpan();
+    clearPendingSpans();
     markPendingRange(range);
     setTargetFromQuote(selectedText);
   }
 
-  function markPendingRange(range) {
-    const span = document.createElement("span");
-    span.className = "mdfh-review-underline mdfh-review-pending";
-    try {
-      range.surroundContents(span);
-      state.pendingSpan = span;
-      window.getSelection()?.removeAllRanges();
-    } catch (_error) {
-      state.pendingSpan = null;
-    }
+  function isRangeInsideReviewBody(range) {
+    const start = elementForNode(range.startContainer);
+    const end = elementForNode(range.endContainer);
+    return Boolean(
+      start &&
+      end &&
+      start.closest("[data-mdfh-review-body]") &&
+      end.closest("[data-mdfh-review-body]"),
+    );
   }
 
-  function clearPendingSpan() {
-    if (!state.pendingSpan) {
+  function markPendingRange(range) {
+    const segments = segmentsForRange(range);
+    state.pendingSpans = wrapSegments(segments, { pending: true });
+    window.getSelection()?.removeAllRanges();
+  }
+
+  function segmentsForRange(range) {
+    const segments = [];
+    textRoots().forEach((root) => {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      let node = walker.nextNode();
+      while (node) {
+        if (range.intersectsNode(node)) {
+          let start = 0;
+          let end = node.nodeValue ? node.nodeValue.length : 0;
+          if (node === range.startContainer) {
+            start = range.startOffset;
+          }
+          if (node === range.endContainer) {
+            end = range.endOffset;
+          }
+          if (end > start) {
+            segments.push({ node, start, end });
+          }
+        }
+        node = walker.nextNode();
+      }
+    });
+    return segments;
+  }
+
+  function clearPendingSpans() {
+    state.pendingSpans.forEach((span) => unwrapSpan(span));
+    state.pendingSpans = [];
+  }
+
+  function unwrapSpan(span) {
+    if (!span || !span.parentNode) {
       return;
     }
-    const parent = state.pendingSpan.parentNode;
-    while (state.pendingSpan.firstChild) {
-      parent.insertBefore(state.pendingSpan.firstChild, state.pendingSpan);
+    const parent = span.parentNode;
+    while (span.firstChild) {
+      parent.insertBefore(span.firstChild, span);
     }
-    parent.removeChild(state.pendingSpan);
+    parent.removeChild(span);
     parent.normalize();
-    state.pendingSpan = null;
   }
 
   async function saveCurrent() {
@@ -675,7 +769,7 @@ REVIEW_CLIENT_JS = r"""
       toast("Still loading comments.");
       return;
     }
-    const comment = els.comment.value.trim();
+    const comment = currentEditorValue();
     if (!comment) {
       toast("Write a comment before saving.");
       return;
@@ -695,7 +789,7 @@ REVIEW_CLIENT_JS = r"""
       updated_at: timestamp,
       ui_marker: "underline",
     };
-    if (state.selectedQuote.trim()) {
+    if (state.selectedQuote.trim() && !state.documentMode) {
       annotation.quote = state.selectedQuote.trim();
     } else {
       annotation.scope = "document";
@@ -703,9 +797,10 @@ REVIEW_CLIENT_JS = r"""
     artifact.annotations = annotations
       .filter((item) => item.id !== annotation.id)
       .concat(annotation);
-    await saveArtifact(artifact, "Saved.");
-    state.editingId = annotation.id;
-    els.del.hidden = false;
+    if (await saveArtifact(artifact, "Saved.")) {
+      resetDraft();
+      renderAnnotations();
+    }
   }
 
   async function saveArtifact(artifact, message) {
@@ -716,11 +811,13 @@ REVIEW_CLIENT_JS = r"""
         body: JSON.stringify(artifact),
       });
       state.artifact = ensureV2Artifact(payload.artifact);
-      clearPendingSpan();
+      clearPendingSpans();
       renderAnnotations();
       toast(message, payload.validation);
+      return true;
     } catch (error) {
       toast(error.message);
+      return false;
     }
   }
 
@@ -730,41 +827,156 @@ REVIEW_CLIENT_JS = r"""
     }
     const artifact = clone(state.artifact);
     artifact.annotations = currentAnnotations().filter((item) => item.id !== state.editingId);
-    await saveArtifact(artifact, "Deleted.");
-    resetForm();
+    if (await saveArtifact(artifact, "Deleted.")) {
+      resetDraft();
+      renderAnnotations();
+    }
   }
 
   function renderAnnotations() {
     unwrapSavedMarkers();
+    clearCommentColumns();
     state.anchorState = new Map();
-    const annotations = currentAnnotations();
+    const annotations = pageAnnotations();
     annotations
-      .filter((annotation) => annotation.page === page && annotation.quote)
+      .filter((annotation) => annotation.quote)
       .forEach((annotation) => markSavedQuote(annotation));
-    renderList(annotations);
-    positionCommentCards();
-    updateConnectors();
+    renderInlineComments(annotations);
+    renderUnplacedComments(annotations);
   }
 
-  function renderList(annotations) {
-    if (annotations.length === 0) {
-      els.list.innerHTML = "";
+  function clearCommentColumns() {
+    content.querySelectorAll("[data-mdfh-review-comments]").forEach((comments) => {
+      comments.innerHTML = "";
+    });
+  }
+
+  function renderInlineComments(annotations) {
+    const itemsByRow = new Map();
+    annotations.forEach((annotation) => {
+      if (annotation.id === state.editingId) {
+        return;
+      }
+      const row = rowForAnnotation(annotation);
+      if (!row) {
+        return;
+      }
+      const status = state.anchorState.get(annotation.id);
+      if (status && status.warning) {
+        return;
+      }
+      addRowItem(itemsByRow, row, {
+        kind: "card",
+        annotation,
+        offset: offsetForAnnotation(annotation, row),
+      });
+    });
+    const editorPlacement = currentEditorTarget();
+    if (editorPlacement) {
+      addRowItem(itemsByRow, editorPlacement.row, {
+        kind: "editor",
+        offset: editorPlacement.offset,
+      });
+    }
+    renderRowItems(itemsByRow);
+  }
+
+  function addRowItem(itemsByRow, row, item) {
+    if (!itemsByRow.has(row)) {
+      itemsByRow.set(row, []);
+    }
+    itemsByRow.get(row).push(item);
+  }
+
+  function renderRowItems(itemsByRow) {
+    itemsByRow.forEach((items, row) => {
+      const comments = row.querySelector("[data-mdfh-review-comments]");
+      if (!comments) {
+        return;
+      }
+      let bottom = 0;
+      items
+        .slice()
+        .sort((left, right) => left.offset - right.offset)
+        .forEach((item) => {
+          const element = item.kind === "editor" ? createEditor() : createCommentCard(item.annotation);
+          const marginTop = Math.max(0, item.offset - bottom);
+          element.style.marginTop = `${marginTop}px`;
+          comments.appendChild(element);
+          bottom += marginTop + element.offsetHeight + 8;
+        });
+    });
+  }
+
+  function createCommentCard(annotation) {
+    const card = document.createElement("article");
+    card.className = "mdfh-review-card";
+    card.dataset.mdfhReviewCard = annotation.id;
+    card.tabIndex = 0;
+    card.innerHTML = `
+      <p>${escapeHtml(annotation.comment)}</p>
+      <small>${escapeHtml(annotation.quote || "Document comment")}</small>
+      <div class="mdfh-review-card-actions">
+        <button type="button" data-mdfh-review-edit="${escapeAttr(annotation.id)}">Edit</button>
+      </div>
+    `;
+    return card;
+  }
+
+  function createEditor() {
+    const existing = state.editingId
+      ? currentAnnotations().find((annotation) => annotation.id === state.editingId)
+      : null;
+    const value = state.draftComment || "";
+    const anchor = state.documentMode ? "Document comment" : state.selectedQuote;
+    const editor = document.createElement("form");
+    editor.className = "mdfh-review-editor";
+    editor.dataset.mdfhReviewEditor = "1";
+    editor.innerHTML = `
+      <div class="mdfh-review-anchor">${escapeHtml(anchor || "Document comment")}</div>
+      <textarea class="mdfh-review-comment-input" data-mdfh-review-comment-input
+        placeholder="Write the requested change and why it matters.">${escapeHtml(value)}</textarea>
+      <div class="mdfh-review-editor-actions">
+        <button type="submit" data-mdfh-review-save>Save</button>
+        ${state.editingId ? '<button type="button" data-mdfh-review-delete>Delete</button>' : ""}
+        <button type="button" data-mdfh-review-cancel>Cancel</button>
+      </div>
+    `;
+    return editor;
+  }
+
+  function renderUnplacedComments(annotations) {
+    if (!els.unplaced) {
       return;
     }
-    const sortedAnnotations = annotations.slice().sort((left, right) => {
-      return annotationSortTop(left) - annotationSortTop(right);
-    });
-    els.list.innerHTML = sortedAnnotations.map((annotation) => {
+    const unplaced = annotations.filter((annotation) => {
       const status = state.anchorState.get(annotation.id);
-      const warning = status && status.warning ? `<small>${escapeHtml(status.warning)}</small>` : "";
-      return `
-      <button type="button" class="mdfh-review-item" data-mdfh-review-item="${escapeAttr(annotation.id)}">
-        <span>${escapeHtml(annotation.comment)}</span>
-        <small>${escapeHtml(annotation.quote || "Document comment")}</small>
-        ${warning}
-      </button>
+      return annotation.quote && status && status.warning;
+    });
+    if (unplaced.length === 0) {
+      els.unplaced.hidden = true;
+      els.unplaced.innerHTML = "";
+      return;
+    }
+    els.unplaced.hidden = false;
+    els.unplaced.innerHTML = `
+      <p><strong>Unplaced comments</strong></p>
+      <small>These comments belong to this page, but their quote cannot be placed uniquely.</small>
+      <div class="mdfh-review-unplaced-list">
+        ${unplaced.map((annotation) => {
+          const status = state.anchorState.get(annotation.id);
+          return `
+            <div class="mdfh-review-unplaced-item">
+              <p>${escapeHtml(annotation.comment)}</p>
+              <small>${escapeHtml(status.warning)} ${escapeHtml(annotation.quote || "")}</small>
+              <div class="mdfh-review-card-actions">
+                <button type="button" data-mdfh-review-edit="${escapeAttr(annotation.id)}">Edit</button>
+              </div>
+            </div>
+          `;
+        }).join("")}
+      </div>
     `;
-    }).join("");
   }
 
   function markSavedQuote(annotation) {
@@ -775,7 +987,7 @@ REVIEW_CLIENT_JS = r"""
       });
       return;
     }
-    wrapQuoteSegments(ranges[0].segments, annotation.id);
+    wrapSegments(ranges[0].segments, { annotationId: annotation.id });
     state.anchorState.set(annotation.id, {});
   }
 
@@ -790,17 +1002,26 @@ REVIEW_CLIENT_JS = r"""
     });
   }
 
+  function textRoots() {
+    return Array.from(content.querySelectorAll("[data-mdfh-review-body]"));
+  }
+
   function findQuoteRanges(quote) {
     const parts = [];
-    const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
-    let node = walker.nextNode();
     let text = "";
-    while (node) {
-      const value = node.nodeValue || "";
-      parts.push({ node, start: text.length, end: text.length + value.length });
-      text += value;
-      node = walker.nextNode();
-    }
+    textRoots().forEach((root, rootIndex) => {
+      if (rootIndex > 0) {
+        text += "\n";
+      }
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      let node = walker.nextNode();
+      while (node) {
+        const value = node.nodeValue || "";
+        parts.push({ node, start: text.length, end: text.length + value.length });
+        text += value;
+        node = walker.nextNode();
+      }
+    });
     const ranges = [];
     let index = 0;
     while (quote && true) {
@@ -823,7 +1044,8 @@ REVIEW_CLIENT_JS = r"""
     return ranges;
   }
 
-  function wrapQuoteSegments(segments, annotationId) {
+  function wrapSegments(segments, { annotationId = "", pending = false } = {}) {
+    const spans = [];
     segments.slice().reverse().forEach((segment) => {
       const textNode = segment.node;
       const parent = textNode.parentNode;
@@ -833,73 +1055,69 @@ REVIEW_CLIENT_JS = r"""
       const after = textNode.splitText(segment.end);
       const middle = textNode.splitText(segment.start);
       const span = document.createElement("span");
-      span.className = "mdfh-review-underline";
-      span.dataset.mdfhReviewAnchorId = annotationId;
+      span.className = pending
+        ? "mdfh-review-underline mdfh-review-pending"
+        : "mdfh-review-underline";
+      if (annotationId) {
+        span.dataset.mdfhReviewAnchorId = annotationId;
+      }
       parent.insertBefore(span, after);
       span.appendChild(middle);
+      spans.unshift(span);
     });
+    return spans;
   }
 
-  function annotationSortTop(annotation) {
-    if (annotation.page !== page) {
-      return Number.MAX_SAFE_INTEGER;
+  function rowForAnnotation(annotation) {
+    if (annotation.scope === "document") {
+      return firstReviewRow();
     }
     const marker = firstMarkerForAnnotation(annotation.id);
-    if (!marker) {
-      return annotation.scope === "document" ? 0 : Number.MAX_SAFE_INTEGER - 1;
+    return marker ? marker.closest("[data-mdfh-review-row]") : null;
+  }
+
+  function currentEditorTarget() {
+    if (!state.editingId && !state.selectedQuote && !state.documentMode) {
+      return null;
     }
-    return marker.getBoundingClientRect().top + window.scrollY;
+    if (state.documentMode) {
+      return { row: firstReviewRow(), offset: 0 };
+    }
+    const pending = state.pendingSpans.find(Boolean);
+    if (pending) {
+      const row = pending.closest("[data-mdfh-review-row]");
+      return row ? { row, offset: offsetForMarker(pending, row) } : null;
+    }
+    if (state.editingId) {
+      const annotation = currentAnnotations().find((item) => item.id === state.editingId);
+      if (annotation && annotation.scope === "document") {
+        return { row: firstReviewRow(), offset: 0 };
+      }
+      const marker = firstMarkerForAnnotation(state.editingId);
+      const row = marker ? marker.closest("[data-mdfh-review-row]") : firstReviewRow();
+      return row ? { row, offset: marker ? offsetForMarker(marker, row) : 0 } : null;
+    }
+    return null;
+  }
+
+  function firstReviewRow() {
+    return content.querySelector("[data-mdfh-review-row]");
   }
 
   function firstMarkerForAnnotation(annotationId) {
     return content.querySelector(`[data-mdfh-review-anchor-id="${cssEscape(annotationId)}"]`);
   }
 
-  function positionCommentCards() {
-    const railRect = rail.getBoundingClientRect();
-    const cards = Array.from(els.list.querySelectorAll("[data-mdfh-review-item]"));
-    let nextTop = 72;
-    cards.forEach((card) => {
-      const annotation = currentAnnotations().find((item) => item.id === card.dataset.mdfhReviewItem);
-      const marker = annotation ? firstMarkerForAnnotation(annotation.id) : null;
-      const desiredTop = marker ? marker.getBoundingClientRect().top : 72;
-      const top = Math.max(72, desiredTop, nextTop);
-      card.style.top = `${top}px`;
-      nextTop = top + card.offsetHeight + 10;
-    });
-    els.list.style.minHeight = `${Math.max(window.innerHeight - railRect.top, nextTop + 16)}px`;
+  function offsetForAnnotation(annotation, row) {
+    if (annotation.scope === "document") {
+      return 0;
+    }
+    const marker = firstMarkerForAnnotation(annotation.id);
+    return marker ? offsetForMarker(marker, row) : 0;
   }
 
-  function updateConnectors() {
-    if (!els.connectors) {
-      return;
-    }
-    els.connectors.innerHTML = "";
-    if (rail.hidden) {
-      return;
-    }
-    els.list.querySelectorAll("[data-mdfh-review-item]").forEach((card) => {
-      const annotation = currentAnnotations().find((item) => item.id === card.dataset.mdfhReviewItem);
-      const marker = annotation ? firstMarkerForAnnotation(annotation.id) : null;
-      if (!marker) {
-        return;
-      }
-      const markerRect = marker.getBoundingClientRect();
-      const cardRect = card.getBoundingClientRect();
-      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-      line.setAttribute("x1", String(markerRect.right));
-      line.setAttribute("y1", String(markerRect.top + markerRect.height / 2));
-      line.setAttribute("x2", String(cardRect.left));
-      line.setAttribute("y2", String(cardRect.top + Math.min(32, cardRect.height / 2)));
-      els.connectors.appendChild(line);
-    });
-  }
-
-  function schedulePositioning() {
-    window.requestAnimationFrame(() => {
-      positionCommentCards();
-      updateConnectors();
-    });
+  function offsetForMarker(marker, row) {
+    return Math.max(0, marker.getBoundingClientRect().top - row.getBoundingClientRect().top);
   }
 
   function editAnnotation(annotation) {
@@ -909,14 +1127,14 @@ REVIEW_CLIENT_JS = r"""
     }
     state.editingId = annotation.id;
     state.selectedQuote = annotation.quote || "";
-    els.anchor.textContent = annotation.quote || "Document comment";
-    els.comment.value = annotation.comment || "";
-    els.del.hidden = false;
-    openRail();
+    state.documentMode = annotation.scope === "document";
+    state.draftComment = annotation.comment || "";
+    clearPendingSpans();
+    renderAnnotations();
     if (annotation.quote) {
       locateQuote(annotation.quote);
     }
-    els.comment.focus();
+    focusEditor();
   }
 
   function locateQuote(quote) {
@@ -942,26 +1160,6 @@ REVIEW_CLIENT_JS = r"""
     block.scrollIntoView({ behavior: "smooth", block: "center" });
     block.classList.add("mdfh-review-flash");
     setTimeout(() => block.classList.remove("mdfh-review-flash"), 1600);
-    window.requestAnimationFrame(() => {
-      positionCommentCards();
-      updateConnectors();
-    });
-  }
-
-  function countOccurrences(haystack, needle) {
-    if (!needle) {
-      return 0;
-    }
-    let count = 0;
-    let index = 0;
-    while (true) {
-      index = haystack.indexOf(needle, index);
-      if (index === -1) {
-        return count;
-      }
-      count += 1;
-      index += needle.length;
-    }
   }
 
   function escapeHtml(value) {
@@ -985,38 +1183,96 @@ REVIEW_CLIENT_JS = r"""
     return String(value || "").replace(/"/g, '\\"');
   }
 
-  rail.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-mdfh-review-item]");
-    if (!button) {
+  function elementForNode(node) {
+    if (!node) {
+      return null;
+    }
+    return node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+  }
+
+  function activateCard(annotationId) {
+    content.querySelectorAll("[data-mdfh-review-card]").forEach((card) => {
+      card.classList.toggle("is-active", card.dataset.mdfhReviewCard === annotationId);
+    });
+  }
+
+  function focusCard(annotationId) {
+    const card = content.querySelector(`[data-mdfh-review-card="${cssEscape(annotationId)}"]`);
+    if (card) {
+      card.scrollIntoView({ behavior: "smooth", block: "center" });
+      card.classList.add("mdfh-review-flash");
+      setTimeout(() => card.classList.remove("mdfh-review-flash"), 1600);
+      activateCard(annotationId);
+    }
+  }
+
+  function handleReviewClick(event) {
+    const editButton = event.target.closest("[data-mdfh-review-edit]");
+    if (editButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      const annotation = currentAnnotations().find((item) => item.id === editButton.dataset.mdfhReviewEdit);
+      if (annotation) {
+        editAnnotation(annotation);
+      }
       return;
     }
-    const annotation = currentAnnotations().find((item) => item.id === button.dataset.mdfhReviewItem);
-    if (annotation) {
-      editAnnotation(annotation);
+
+    if (event.target.closest("[data-mdfh-review-cancel]")) {
+      event.preventDefault();
+      resetDraft();
+      renderAnnotations();
+      return;
     }
-  });
-  content.addEventListener("click", (event) => {
+
+    if (event.target.closest("[data-mdfh-review-delete]")) {
+      event.preventDefault();
+      deleteCurrent();
+      return;
+    }
+
+    const card = event.target.closest("[data-mdfh-review-card]");
+    if (card) {
+      const annotation = currentAnnotations().find((item) => item.id === card.dataset.mdfhReviewCard);
+      if (annotation && annotation.quote) {
+        activateCard(annotation.id);
+        locateQuote(annotation.quote);
+      }
+      return;
+    }
+
     const marker = event.target.closest("[data-mdfh-review-anchor-id]");
-    if (!marker) {
+    if (marker) {
+      const annotation = currentAnnotations().find((item) => item.id === marker.dataset.mdfhReviewAnchorId);
+      if (annotation) {
+        focusCard(annotation.id);
+      }
+    }
+  }
+
+  content.addEventListener("click", handleReviewClick);
+  if (els.unplaced) {
+    els.unplaced.addEventListener("click", handleReviewClick);
+  }
+  content.addEventListener("submit", (event) => {
+    if (!event.target.closest("[data-mdfh-review-editor]")) {
       return;
     }
-    const annotation = currentAnnotations().find((item) => item.id === marker.dataset.mdfhReviewAnchorId);
-    if (annotation) {
-      editAnnotation(annotation);
+    event.preventDefault();
+    saveCurrent();
+  });
+  content.addEventListener("input", (event) => {
+    if (event.target.closest("[data-mdfh-review-comment-input]")) {
+      state.draftComment = event.target.value;
     }
   });
   document.addEventListener("mouseup", captureSelection);
   document.addEventListener("keyup", captureSelection);
-  els.open.addEventListener("click", () => {
-    resetForm();
-    openRail();
-    els.comment.focus();
+  els.open.addEventListener("click", startDocumentComment);
+  window.addEventListener("resize", () => renderAnnotations());
+  content.querySelectorAll("img").forEach((image) => {
+    image.addEventListener("load", () => renderAnnotations(), { once: true });
   });
-  els.close.addEventListener("click", closeRail);
-  els.save.addEventListener("click", saveCurrent);
-  els.del.addEventListener("click", deleteCurrent);
-  window.addEventListener("scroll", schedulePositioning, { passive: true });
-  window.addEventListener("resize", schedulePositioning);
 
   request("/state")
     .then((payload) => handleStatePayload(payload, { initial: true }))
@@ -1046,10 +1302,6 @@ REVIEW_CLIENT_JS = r"""
     }
     state.artifact = ensureV2Artifact(payload.artifact);
     renderAnnotations();
-    const pageHasAnnotations = currentAnnotations().some((annotation) => annotation.page === page);
-    if (initial && pageHasAnnotations) {
-      openRail();
-    }
     if (payload.build && payload.build.error) {
       toast(payload.build.error);
     } else if (payload.validation && payload.validation.errors && payload.validation.errors.length) {
