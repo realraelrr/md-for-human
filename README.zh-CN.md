@@ -57,6 +57,12 @@ md-for-human tests/fixtures/sample_site -o /tmp/md-for-human-sample-site --overw
 md-for-human --validate-review /tmp/md-for-human-sample-site
 ```
 
+为已有生成站点启动本地浏览器审阅 UI：
+
+```bash
+md-for-human --review /tmp/md-for-human-sample-site
+```
+
 `--no-open` 用于 headless 场景，`--verify` 用于结构校验，`--fail-on-warning` 用于严格自动化。agent 交付建议使用 `--strict`，它等价于组合 `--verify --fail-on-warning --no-open`。
 
 ## 输出契约
@@ -116,6 +122,19 @@ md-for-human --validate-review path/to/output
 ```
 
 当缺失或歧义 quote 锚点也应让自动化失败时，加上 `--fail-on-warning`。
+
+当人类需要像批改论文一样做标注时，使用浏览器审阅 UI：
+
+```bash
+md-for-human --review path/to/output
+```
+
+审阅 server 只绑定 `127.0.0.1`，按请求动态注入审阅 UI，不改写已有生成
+HTML。API 路由统一位于 `/__mdfh_review/`，需要 per-session token，不启用
+CORS，并且只写 `.md-for-human/review/annotations.json` 和派生的 `review.md`。
+UI 会提交完整 artifact 草稿，但 server 会在写入前拒绝 schema、page 和
+source_path 等 hard failure。quote 缺失或重复只作为 warning 返回，仍允许保存，
+方便继续交给 agent 消费。
 
 ## Agent Skill
 

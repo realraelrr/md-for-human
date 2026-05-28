@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from md_for_human.cli import main
 
 
@@ -55,6 +57,7 @@ def test_python_m_md_for_human_help_displays_expected_options():
     assert "--fail-on-warning" in result.stdout
     assert "--strict" in result.stdout
     assert "--validate-review" in result.stdout
+    assert "--review" in result.stdout
 
 
 def test_main_builds_site_without_opening_browser_when_no_open(
@@ -510,6 +513,71 @@ def test_main_validate_review_strict_fails_on_warning(
     assert "Review validation: failed" in stdout.getvalue()
     assert "Warnings: 1" in stdout.getvalue()
     assert "Failing because review warnings were emitted." in stderr.getvalue()
+
+
+def test_main_review_serves_existing_output_without_rebuilding(
+    sample_site_copy: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    output_dir = tmp_path / "output"
+    assert (
+        main(
+            [str(sample_site_copy), "--output", str(output_dir), "--no-open"],
+            opener=lambda *_: None,
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        )
+        == 0
+    )
+    html_path = output_dir / "guide" / "setup.html"
+    original_html = html_path.read_text(encoding="utf-8")
+    served: list[Path] = []
+
+    def fail_build_site(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("--review must not rebuild input")
+
+    def fake_serve_review(path: Path, *_args: object, **_kwargs: object) -> int:
+        served.append(path)
+        return 0
+
+    monkeypatch.setattr("md_for_human.cli.build_site", fail_build_site)
+    monkeypatch.setattr("md_for_human.cli.serve_review", fake_serve_review)
+
+    result = main(
+        ["--review", str(output_dir)],
+        opener=lambda *_: None,
+        stdout=io.StringIO(),
+        stderr=io.StringIO(),
+    )
+
+    assert result == 0
+    assert served == [output_dir]
+    assert html_path.read_text(encoding="utf-8") == original_html
+
+
+def test_main_review_rejects_output_without_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    stderr = io.StringIO()
+
+    def fail_serve_review(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("--review must not start without manifest")
+
+    monkeypatch.setattr("md_for_human.cli.serve_review", fail_serve_review)
+
+    result = main(
+        ["--review", str(output_dir)],
+        opener=lambda *_: None,
+        stdout=io.StringIO(),
+        stderr=stderr,
+    )
+
+    assert result == 1
+    assert "manifest.json" in stderr.getvalue()
 
 
 def test_main_fail_on_warning_returns_error_after_reporting_warnings(tmp_path: Path):

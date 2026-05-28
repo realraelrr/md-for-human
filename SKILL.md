@@ -51,6 +51,24 @@ md-for-human --validate-review OUTPUT_DIR
 
 Use `--fail-on-warning` when ambiguous anchors should reject the handoff.
 
+Humans can create the same artifact through the local browser review UI:
+
+```bash
+md-for-human --review OUTPUT_DIR
+```
+
+The UI is a protocol client over the generated site. It lets the reviewer select
+rendered text, choose `comment`, `suggest_delete`, `suggest_insert`, or
+`suggest_replace`, fill the required note, and save to the same
+`annotations.json`. For `suggest_insert`, the selected text is only the insertion
+anchor; the inserted text goes in `suggested_text`, with `placement` set to
+`before` or `after`.
+
+The review server binds to `127.0.0.1`, uses a per-session token for
+`/__mdfh_review/` API calls, does not enable CORS, and only writes
+`.md-for-human/review/annotations.json` plus generated `review.md`. It never
+rewrites source Markdown or generated HTML.
+
 `annotations.json` is the fact source; `review.md` is generated from it. Do not
 edit `review.md` manually. The v1 annotation types are `comment`, `suggest_delete`,
 `suggest_insert`, and `suggest_replace`. Every annotation must include `id`,
@@ -88,6 +106,7 @@ Before claiming completion:
 - manifest `documents` maps reviewable pages to source paths and source sha256 values
 - `--verify` passed if you used it, or `--strict` passed for agent handoff
 - `--validate-review` passed if you are handing back review annotations
+- artifacts created by `--review` and artifacts created by agents use the same schema
 
 Use the reported entry page or manifest `entry_page`; directory builds usually use
 `index.html`, while single-file builds use the source file basename.

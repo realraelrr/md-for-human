@@ -11,6 +11,7 @@ from typing import Callable, Sequence, TextIO
 from md_for_human.builder import BuildResult, build_site
 from md_for_human.discovery import DiscoveryError
 from md_for_human.html_targets import extract_local_targets
+from md_for_human.review.server import ReviewServerError, serve_review
 from md_for_human.review.validate import ReviewValidationResult, validate_review
 from md_for_human.urls import decode_url_path
 
@@ -66,6 +67,11 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="OUTPUT_DIR",
         help="Validate review annotations for an existing generated site output directory",
     )
+    parser.add_argument(
+        "--review",
+        metavar="OUTPUT_DIR",
+        help="Start a local browser review UI for an existing generated site output directory",
+    )
     return parser
 
 
@@ -89,8 +95,19 @@ def main(
             stderr=stderr,
         )
 
+    if args.review:
+        return serve_review_output(
+            Path(args.review),
+            opener=opener,
+            stdout=stdout,
+            stderr=stderr,
+        )
+
     if args.input_path is None:
-        print("Error: input_path is required unless --validate-review is used.", file=stderr)
+        print(
+            "Error: input_path is required unless --validate-review or --review is used.",
+            file=stderr,
+        )
         return 1
 
     try:
@@ -146,6 +163,16 @@ def validate_input_path(input_path: Path) -> Path:
         raise CliError(f"Input file is not Markdown: {input_path}")
     if not resolved.is_dir() and not resolved.is_file():
         raise CliError(f"Input path is neither a directory nor a file: {input_path}")
+    return resolved
+
+
+def validate_review_output_dir(output_dir: Path) -> Path:
+    resolved = output_dir.resolve()
+    manifest_path = resolved / ".md-for-human" / "manifest.json"
+    if not resolved.exists() or not resolved.is_dir():
+        raise CliError(f"Review output directory does not exist: {output_dir}")
+    if not manifest_path.exists():
+        raise CliError(f"Review output directory is missing manifest.json: {manifest_path}")
     return resolved
 
 
@@ -212,6 +239,21 @@ def print_build_summary(result: BuildResult, browser_opened: bool, stdout: TextI
     print(f"Assets copied: {len(result.copied_assets)}", file=stdout)
     print(f"Warnings: {len(result.warnings)}", file=stdout)
     print(f"Browser opened: {'yes' if browser_opened else 'no'}", file=stdout)
+
+
+def serve_review_output(
+    output_dir: Path,
+    *,
+    opener: Callable[[str], object],
+    stdout: TextIO,
+    stderr: TextIO,
+) -> int:
+    try:
+        resolved_output_dir = validate_review_output_dir(output_dir)
+        return serve_review(resolved_output_dir, opener=opener, stdout=stdout)
+    except (CliError, ReviewServerError, OSError) as exc:
+        print(f"Error: {exc}", file=stderr)
+        return 1
 
 
 def validate_review_output(
