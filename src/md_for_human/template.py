@@ -18,6 +18,8 @@ def render_page_html(
     pager_html = render_page_pager(page, rendered_pages)
     sidebar_toc_html = render_sidebar_toc(page.toc_html)
     page_meta = html.escape(page.document.relative_source_path.as_posix())
+    page_attr = html.escape(page.document.output_path.as_posix(), quote=True)
+    source_path_attr = html.escape(page.document.relative_source_path.as_posix(), quote=True)
     close_href = relative_output_link(page.document.output_path, entry_output_path)
 
     return (
@@ -29,7 +31,7 @@ def render_page_html(
         f"  <title>{html.escape(page.title)}</title>\n"
         f"  <style>{BASE_CSS}</style>\n"
         "</head>\n"
-        "<body>\n"
+        f"<body data-mdfh-page=\"{page_attr}\" data-mdfh-source-path=\"{source_path_attr}\">\n"
         "  <div class=\"layout\" data-layout>\n"
         "    <aside class=\"sidebar\" data-sidebar id=\"site-sidebar\">\n"
         "      <button type=\"button\" class=\"sidebar-edge-toggle\" data-sidebar-toggle data-sidebar-edge-toggle aria-controls=\"site-sidebar\" aria-expanded=\"true\" aria-label=\"Collapse sidebar\" title=\"Collapse sidebar\">‹</button>\n"
@@ -58,7 +60,7 @@ def render_page_html(
         "        </div>\n"
         "        <article class=\"article\" data-doc-card>\n"
         f"          <a class=\"article-close\" href=\"{html.escape(close_href, quote=True)}\" aria-label=\"Close document\" title=\"Close document\">&times;</a>\n"
-        f"          <div class=\"article-content\">{page.content_html}</div>\n"
+        f"          <div class=\"article-content\" data-mdfh-content=\"1\">{page.content_html}</div>\n"
         "        </article>\n"
         f"{pager_html}\n"
         "      </div>\n"

@@ -246,6 +246,24 @@ def test_render_page_html_adds_doc_close_link_to_entry_page(
     assert "&times;" in html
 
 
+def test_render_page_html_adds_review_metadata_without_new_content_wrapper(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    _, rendered_pages, nav_tree, ordered_pages = _build_site_context(sample_site_copy, tmp_path)
+    intro_page = ordered_pages[1]
+
+    html = render_page_html(intro_page, nav_tree, rendered_pages)
+
+    assert (
+        '<body data-mdfh-page="guide/intro.html" '
+        'data-mdfh-source-path="guide/intro.md">'
+    ) in html
+    assert '<div class="article-content" data-mdfh-content="1">' in html
+    assert html.count("data-mdfh-content=") == 1
+    assert '<article class="article" data-doc-card>' in html
+
+
 def test_render_page_html_includes_toc_scroll_spy(
     sample_site_copy: Path,
     tmp_path: Path,

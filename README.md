@@ -59,6 +59,12 @@ Build and verify the sample fixture without opening a browser:
 md-for-human tests/fixtures/sample_site -o /tmp/md-for-human-sample-site --overwrite --verify --no-open
 ```
 
+Validate review annotations written by a human or agent against an existing generated site:
+
+```bash
+md-for-human --validate-review /tmp/md-for-human-sample-site
+```
+
 Use `--no-open` for headless runs, `--verify` for structural checks, and
 `--fail-on-warning` for strict automation. Use `--strict` for agent handoff; it
 combines `--verify --fail-on-warning --no-open`.
@@ -85,6 +91,18 @@ Every build writes `.md-for-human/manifest.json` inside the output directory:
 {
   "entry_page": "index.html",
   "pages": ["index.html", "guide/setup.html"],
+  "documents": [
+    {
+      "page": "index.html",
+      "source_path": "README.md",
+      "source_sha256": "..."
+    },
+    {
+      "page": "guide/setup.html",
+      "source_path": "guide/setup.md",
+      "source_sha256": "..."
+    }
+  ],
   "copied_assets": ["images/diagram.png"],
   "warnings": []
 }
@@ -92,6 +110,27 @@ Every build writes `.md-for-human/manifest.json` inside the output directory:
 
 For single-file inputs, `entry_page` uses the source file basename instead of
 `index.html`.
+
+## Review Artifacts
+
+Review annotations are optional sidecar artifacts under `.md-for-human/review/`.
+They do not modify source Markdown or generated HTML. `annotations.json` is the
+machine-readable source of truth, and `review.md` is a generated summary for
+humans and agents.
+
+The v1 protocol supports `comment`, `suggest_delete`, `suggest_insert`, and
+`suggest_replace`. Every annotation records a page, source path, quote anchor,
+note, and timestamps. For `suggest_insert`, the quote is only the insertion
+anchor; it is not text to edit or remove.
+
+Validate review artifacts with:
+
+```bash
+md-for-human --validate-review path/to/output
+```
+
+Add `--fail-on-warning` when ambiguous or missing quote anchors should fail
+automation.
 
 ## Agent Skill
 

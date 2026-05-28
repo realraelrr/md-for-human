@@ -51,6 +51,12 @@ conda run -n md-for-human md-for-human path/to/agent-output
 md-for-human tests/fixtures/sample_site -o /tmp/md-for-human-sample-site --overwrite --verify --no-open
 ```
 
+验证人类或 agent 写入的审阅标注：
+
+```bash
+md-for-human --validate-review /tmp/md-for-human-sample-site
+```
+
 `--no-open` 用于 headless 场景，`--verify` 用于结构校验，`--fail-on-warning` 用于严格自动化。agent 交付建议使用 `--strict`，它等价于组合 `--verify --fail-on-warning --no-open`。
 
 ## 输出契约
@@ -74,12 +80,42 @@ Browser opened: yes/no
 {
   "entry_page": "index.html",
   "pages": ["index.html", "guide/setup.html"],
+  "documents": [
+    {
+      "page": "index.html",
+      "source_path": "README.md",
+      "source_sha256": "..."
+    },
+    {
+      "page": "guide/setup.html",
+      "source_path": "guide/setup.md",
+      "source_sha256": "..."
+    }
+  ],
   "copied_assets": ["images/diagram.png"],
   "warnings": []
 }
 ```
 
 单文件输入的 `entry_page` 使用源文件 basename，而不是 `index.html`。
+
+## Review Artifacts
+
+审阅标注是 `.md-for-human/review/` 下的可选 sidecar artifact，不会修改源
+Markdown 或生成的 HTML。`annotations.json` 是机器可读事实源，`review.md` 是
+面向人类和 agent 的派生摘要。
+
+v1 协议支持 `comment`、`suggest_delete`、`suggest_insert` 和
+`suggest_replace`。每条 annotation 记录页面、源路径、quote 锚点、note 和时间戳。
+对 `suggest_insert` 来说，quote 只是插入位置锚点，不是要编辑或删除的文本。
+
+验证审阅 artifact：
+
+```bash
+md-for-human --validate-review path/to/output
+```
+
+当缺失或歧义 quote 锚点也应让自动化失败时，加上 `--fail-on-warning`。
 
 ## Agent Skill
 

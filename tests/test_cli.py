@@ -9,6 +9,35 @@ from pathlib import Path
 from md_for_human.cli import main
 
 
+def _write_review_artifact(output_dir: Path, *, quote: str) -> None:
+    review_dir = output_dir / ".md-for-human" / "review"
+    review_dir.mkdir(parents=True)
+    (review_dir / "annotations.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "mdfh-review-v1",
+                "created_by": {"kind": "agent", "name": "codex"},
+                "source_manifest": ".md-for-human/manifest.json",
+                "annotations": [
+                    {
+                        "id": "ann_cli",
+                        "type": "comment",
+                        "page": "guide/setup.html",
+                        "source_path": "guide/setup.md",
+                        "quote": quote,
+                        "note": "CLI validation should report this review artifact.",
+                        "created_at": "2026-05-28T12:00:00Z",
+                        "updated_at": "2026-05-28T12:00:00Z",
+                    }
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
 def test_python_m_md_for_human_help_displays_expected_options():
     result = subprocess.run(
         [sys.executable, "-m", "md_for_human", "--help"],
@@ -25,6 +54,7 @@ def test_python_m_md_for_human_help_displays_expected_options():
     assert "--verify" in result.stdout
     assert "--fail-on-warning" in result.stdout
     assert "--strict" in result.stdout
+    assert "--validate-review" in result.stdout
 
 
 def test_main_builds_site_without_opening_browser_when_no_open(
@@ -380,6 +410,106 @@ def test_main_verify_accepts_url_encoded_local_links_and_assets(tmp_path: Path):
     assert (output_dir / "images" / "diagram image.png").exists()
     assert "Verification: passed" in stdout.getvalue()
     assert stderr.getvalue() == ""
+
+
+def test_main_validate_review_reports_success_without_rebuilding(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    output_dir = tmp_path / "output"
+    build_stdout = io.StringIO()
+    assert (
+        main(
+            [str(sample_site_copy), "--output", str(output_dir), "--no-open"],
+            opener=lambda *_: None,
+            stdout=build_stdout,
+            stderr=io.StringIO(),
+        )
+        == 0
+    )
+    _write_review_artifact(output_dir, quote="Run the setup steps here.")
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    opener_calls: list[str] = []
+
+    result = main(
+        ["--validate-review", str(output_dir)],
+        opener=opener_calls.append,
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    assert result == 0
+    assert opener_calls == []
+    assert "Review validation: passed" in stdout.getvalue()
+    assert "Annotations: 1" in stdout.getvalue()
+    assert "Pages touched: 1" in stdout.getvalue()
+    assert "Warnings: 0" in stdout.getvalue()
+    assert "Review summary: " in stdout.getvalue()
+    assert (output_dir / ".md-for-human" / "review" / "review.md").exists()
+    assert stderr.getvalue() == ""
+
+
+def test_main_validate_review_fail_on_warning_returns_error(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    output_dir = tmp_path / "output"
+    assert (
+        main(
+            [str(sample_site_copy), "--output", str(output_dir), "--no-open"],
+            opener=lambda *_: None,
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        )
+        == 0
+    )
+    _write_review_artifact(output_dir, quote="Missing quote.")
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+
+    result = main(
+        ["--validate-review", str(output_dir), "--fail-on-warning"],
+        opener=lambda *_: None,
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    assert result == 1
+    assert "Review validation: failed" in stdout.getvalue()
+    assert "Warnings: 1" in stdout.getvalue()
+    assert "ann_cli: quote not found in guide/setup.html" in stderr.getvalue()
+
+
+def test_main_validate_review_strict_fails_on_warning(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    output_dir = tmp_path / "output"
+    assert (
+        main(
+            [str(sample_site_copy), "--output", str(output_dir), "--no-open"],
+            opener=lambda *_: None,
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        )
+        == 0
+    )
+    _write_review_artifact(output_dir, quote="Missing quote.")
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+
+    result = main(
+        ["--validate-review", str(output_dir), "--strict"],
+        opener=lambda *_: None,
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    assert result == 1
+    assert "Review validation: failed" in stdout.getvalue()
+    assert "Warnings: 1" in stdout.getvalue()
+    assert "Failing because review warnings were emitted." in stderr.getvalue()
 
 
 def test_main_fail_on_warning_returns_error_after_reporting_warnings(tmp_path: Path):

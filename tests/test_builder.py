@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 import json
 
@@ -109,6 +110,60 @@ def test_build_site_writes_manifest_for_agent_audit(sample_site_copy: Path, tmp_
     assert manifest["pages"] == result.pages
     assert manifest["copied_assets"] == ["images/diagram.png"]
     assert manifest["warnings"] == []
+    assert manifest["documents"] == [
+        {
+            "page": "index.html",
+            "source_path": "README.md",
+            "source_sha256": hashlib.sha256(
+                (sample_site_copy / "README.md").read_bytes()
+            ).hexdigest(),
+        },
+        {
+            "page": "guide/intro.html",
+            "source_path": "guide/intro.md",
+            "source_sha256": hashlib.sha256(
+                (sample_site_copy / "guide" / "intro.md").read_bytes()
+            ).hexdigest(),
+        },
+        {
+            "page": "guide/setup.html",
+            "source_path": "guide/setup.md",
+            "source_sha256": hashlib.sha256(
+                (sample_site_copy / "guide" / "setup.md").read_bytes()
+            ).hexdigest(),
+        },
+        {
+            "page": "misc/no-title.html",
+            "source_path": "misc/no-title.md",
+            "source_sha256": hashlib.sha256(
+                (sample_site_copy / "misc" / "no-title.md").read_bytes()
+            ).hexdigest(),
+        },
+        {
+            "page": "reference/index.html",
+            "source_path": "reference/README.md",
+            "source_sha256": hashlib.sha256(
+                (sample_site_copy / "reference" / "README.md").read_bytes()
+            ).hexdigest(),
+        },
+    ]
+
+
+def test_build_site_excludes_synthetic_landing_page_from_manifest_documents(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    (sample_site_copy / "README.md").unlink()
+    output_dir = tmp_path / "output"
+
+    result = build_site(sample_site_copy, output_dir)
+    manifest = json.loads(
+        (output_dir / ".md-for-human" / "manifest.json").read_text(encoding="utf-8")
+    )
+
+    assert result.pages[0] == "index.html"
+    assert "index.html" in manifest["pages"]
+    assert all(document["page"] != "index.html" for document in manifest["documents"])
 
 
 def test_build_site_warns_for_missing_and_symlinked_assets(tmp_path: Path):

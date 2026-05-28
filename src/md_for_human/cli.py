@@ -11,6 +11,7 @@ from typing import Callable, Sequence, TextIO
 from md_for_human.builder import BuildResult, build_site
 from md_for_human.discovery import DiscoveryError
 from md_for_human.html_targets import extract_local_targets
+from md_for_human.review.validate import ReviewValidationResult, validate_review
 from md_for_human.urls import decode_url_path
 
 
@@ -25,7 +26,11 @@ def build_parser() -> argparse.ArgumentParser:
             "Turn agent-generated Markdown files into a human-friendly, navigable HTML reading site."
         ),
     )
-    parser.add_argument("input_path", help="Markdown directory or single Markdown file to humanize")
+    parser.add_argument(
+        "input_path",
+        nargs="?",
+        help="Markdown directory or single Markdown file to humanize",
+    )
     parser.add_argument(
         "-o",
         "--output",
@@ -56,6 +61,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Run strict agent handoff checks: --verify --fail-on-warning --no-open",
     )
+    parser.add_argument(
+        "--validate-review",
+        metavar="OUTPUT_DIR",
+        help="Validate review annotations for an existing generated site output directory",
+    )
     return parser
 
 
@@ -70,6 +80,18 @@ def main(
     stderr = stderr or sys.stderr
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.validate_review:
+        return validate_review_output(
+            Path(args.validate_review),
+            fail_on_warning=args.fail_on_warning or args.strict,
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+    if args.input_path is None:
+        print("Error: input_path is required unless --validate-review is used.", file=stderr)
+        return 1
 
     try:
         input_path = validate_input_path(Path(args.input_path))
@@ -192,6 +214,37 @@ def print_build_summary(result: BuildResult, browser_opened: bool, stdout: TextI
     print(f"Browser opened: {'yes' if browser_opened else 'no'}", file=stdout)
 
 
+def validate_review_output(
+    output_dir: Path,
+    *,
+    fail_on_warning: bool,
+    stdout: TextIO,
+    stderr: TextIO,
+) -> int:
+    result = validate_review(output_dir)
+    should_fail = bool(result.errors) or (fail_on_warning and bool(result.warnings))
+
+    print(f"Review validation: {'failed' if should_fail else 'passed'}", file=stdout)
+    print(f"Annotations: {result.annotation_count}", file=stdout)
+    print(f"Pages touched: {result.pages_touched}", file=stdout)
+    print(f"Warnings: {len(result.warnings)}", file=stdout)
+    if result.summary_path is not None:
+        print(f"Review summary: {result.summary_path}", file=stdout)
+
+    print_review_diagnostics(result, stderr)
+    if fail_on_warning and result.warnings:
+        print("Failing because review warnings were emitted.", file=stderr)
+
+    return 1 if should_fail else 0
+
+
+def print_review_diagnostics(result: ReviewValidationResult, stderr: TextIO) -> None:
+    for warning in result.warnings:
+        print(f"Review warning: {warning}", file=stderr)
+    for error in result.errors:
+        print(f"Review error: {error}", file=stderr)
+
+
 def verify_build_result(result: BuildResult) -> list[str]:
     errors: list[str] = []
     entry_relative = result.entry_page.relative_to(result.output_dir).as_posix()
@@ -211,12 +264,14 @@ def verify_build_result(result: BuildResult) -> list[str]:
             errors.append(f"Expected page missing: {page}")
             continue
         html = page_path.read_text(encoding="utf-8")
-        if ".md\"" in html or ".md#" in html:
-            errors.append(f"Markdown link appears unrevised in page: {page}")
         for target in extract_local_targets(html):
             if target.startswith("#"):
                 continue
-            target_path = (page_path.parent / decode_url_path(target)).resolve()
+            decoded_target = decode_url_path(target)
+            target_without_fragment = decoded_target.split("#", 1)[0]
+            if target_without_fragment.lower().endswith(".md"):
+                errors.append(f"Markdown link appears unrevised in page: {page}")
+            target_path = (page_path.parent / target_without_fragment).resolve()
             if result.output_dir.resolve() not in target_path.parents and target_path != result.output_dir.resolve():
                 continue
             if not target_path.exists():

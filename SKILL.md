@@ -35,6 +35,30 @@ Use `--no-open` only for headless work, CI, artifact-only handoff, or browser-op
 failures. Add `--verify` when structural checks matter. Prefer `--strict` for
 agent handoff because it combines `--verify --fail-on-warning --no-open`.
 
+## Review Artifacts
+
+Agents can review generated sites without launching a browser by writing the v1
+review artifact and validating it:
+
+1. Build the site with `--strict` or build normally and keep the output directory.
+2. Read `OUTPUT_DIR/.md-for-human/manifest.json`.
+3. Write `OUTPUT_DIR/.md-for-human/review/annotations.json`.
+4. Run:
+
+```bash
+md-for-human --validate-review OUTPUT_DIR
+```
+
+Use `--fail-on-warning` when ambiguous anchors should reject the handoff.
+
+`annotations.json` is the fact source; `review.md` is generated from it. Do not
+edit `review.md` manually. The v1 annotation types are `comment`, `suggest_delete`,
+`suggest_insert`, and `suggest_replace`. Every annotation must include `id`,
+`type`, `page`, `source_path`, `quote`, `note`, `created_at`, and `updated_at`.
+`suggest_insert` also needs `placement` and `suggested_text`; its `quote` is only
+the insertion anchor, not text to edit or remove. `suggest_replace` also needs
+`suggested_text`.
+
 ## Setup
 
 Create the project environment if it is missing:
@@ -61,7 +85,9 @@ Before claiming completion:
 - reported entry page exists and starts with `<!DOCTYPE html>`
 - entry page contains site navigation
 - `.md-for-human/manifest.json` exists in the output directory
+- manifest `documents` maps reviewable pages to source paths and source sha256 values
 - `--verify` passed if you used it, or `--strict` passed for agent handoff
+- `--validate-review` passed if you are handing back review annotations
 
 Use the reported entry page or manifest `entry_page`; directory builds usually use
 `index.html`, while single-file builds use the source file basename.

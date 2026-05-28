@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
 from html import escape
@@ -89,6 +90,7 @@ def build_site(input_dir: Path, output_dir: Path) -> BuildResult:
         pages,
         copied_assets,
         warnings,
+        manifest.documents,
     )
 
     return BuildResult(
@@ -143,6 +145,7 @@ def write_agent_manifest(
     pages: list[str],
     copied_assets: list[str],
     warnings: list[str],
+    documents: list[Document],
 ) -> Path:
     manifest_path = output_dir / ".md-for-human" / "manifest.json"
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -151,6 +154,16 @@ def write_agent_manifest(
             {
                 "entry_page": entry_page,
                 "pages": pages,
+                "documents": [
+                    {
+                        "page": document.output_path.as_posix(),
+                        "source_path": document.relative_source_path.as_posix(),
+                        "source_sha256": hashlib.sha256(
+                            document.source_path.read_bytes()
+                        ).hexdigest(),
+                    }
+                    for document in documents
+                ],
                 "copied_assets": copied_assets,
                 "warnings": warnings,
             },
