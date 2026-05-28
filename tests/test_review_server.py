@@ -22,17 +22,15 @@ from md_for_human.review.validate import validate_review
 
 def _valid_artifact() -> dict[str, object]:
     return {
-        "schema_version": "mdfh-review-v1",
-        "created_by": {"kind": "human", "name": "local-reviewer"},
+        "schema_version": "mdfh-review-v2",
         "source_manifest": ".md-for-human/manifest.json",
         "annotations": [
             {
                 "id": "ann_ui",
-                "type": "comment",
                 "page": "guide/setup.html",
                 "source_path": "guide/setup.md",
                 "quote": "Run the setup steps here.",
-                "note": "This should be clearer for handoff.",
+                "comment": "This should be clearer for handoff.",
                 "created_at": "2026-05-28T12:00:00Z",
                 "updated_at": "2026-05-28T12:00:00Z",
             }
@@ -52,7 +50,8 @@ def test_review_server_initializes_empty_human_artifact(
     artifact_path = output_dir / ".md-for-human" / "review" / "annotations.json"
 
     artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
-    assert artifact["created_by"] == {"kind": "human", "name": "local-reviewer"}
+    assert artifact["schema_version"] == "mdfh-review-v2"
+    assert "created_by" not in artifact
     assert artifact["annotations"] == []
     assert state["artifact"] == artifact
     assert state["validation"]["errors"] == []
@@ -94,6 +93,23 @@ def test_review_server_rejects_hard_failures_before_writing(
     assert "is not listed in manifest documents" in "\n".join(exc_info.value.errors)
     assert artifact_path.read_text(encoding="utf-8") == original
     assert not (output_dir / ".md-for-human" / "review" / "review.md").exists()
+
+
+def test_review_server_rejects_legacy_schema_on_save(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    output_dir = tmp_path / "output"
+    build_site(sample_site_copy, output_dir)
+    app = ReviewServerApp(output_dir, token="test-token")
+    legacy_artifact = _valid_artifact()
+    legacy_artifact["schema_version"] = "mdfh-review-v1"
+    legacy_artifact["created_by"] = {"kind": "human", "name": "local-reviewer"}
+
+    with pytest.raises(ReviewServerError) as exc_info:
+        app.save_annotations(token="test-token", artifact=legacy_artifact)
+
+    assert "browser review writes only mdfh-review-v2" in "\n".join(exc_info.value.errors)
 
 
 def test_review_server_saves_quote_warnings_and_regenerates_summary(
@@ -205,7 +221,7 @@ def test_review_server_http_api_requires_token_and_does_not_enable_cors(
         thread.join(timeout=2)
 
 
-def test_review_server_injected_ui_contains_insert_anchor_copy_and_locator(
+def test_review_server_injected_ui_uses_comment_rail_without_action_form(
     sample_site_copy: Path,
     tmp_path: Path,
 ):
@@ -215,9 +231,12 @@ def test_review_server_injected_ui_contains_insert_anchor_copy_and_locator(
 
     served = app.render_site_file("guide/setup.html")
 
-    assert "Insert before selected anchor" in served
-    assert "Insert after selected anchor" in served
-    assert ".mdfh-review-panel [hidden]" in served
+    assert "data-mdfh-review-rail" in served
+    assert "data-mdfh-review-comment-input" in served
+    assert "mdfh-review-underline" in served
     assert "locateQuote" in served
     assert "scrollIntoView" in served
-    assert "suggest_insert" in served
+    assert "suggest_insert" not in served
+    assert "Selected annotation" not in served
+    assert "Reviewer name" not in served
+    assert "Status" not in served

@@ -7,6 +7,25 @@ from md_for_human.builder import build_site
 from md_for_human.review.validate import validate_review
 
 
+def _write_review_artifact_v2(output_dir: Path, annotations: list[dict[str, str]]) -> Path:
+    review_dir = output_dir / ".md-for-human" / "review"
+    review_dir.mkdir(parents=True)
+    artifact_path = review_dir / "annotations.json"
+    artifact_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "mdfh-review-v2",
+                "source_manifest": ".md-for-human/manifest.json",
+                "annotations": annotations,
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return artifact_path
+
+
 def _write_review_artifact(output_dir: Path, annotations: list[dict[str, str]]) -> Path:
     review_dir = output_dir / ".md-for-human" / "review"
     review_dir.mkdir(parents=True)
@@ -25,6 +44,144 @@ def _write_review_artifact(output_dir: Path, annotations: list[dict[str, str]]) 
         encoding="utf-8",
     )
     return artifact_path
+
+
+def test_validate_review_accepts_v2_quote_and_document_comments(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    output_dir = tmp_path / "output"
+    build_site(sample_site_copy, output_dir)
+    _write_review_artifact_v2(
+        output_dir,
+        [
+            {
+                "id": "ann_quote_setup",
+                "page": "guide/setup.html",
+                "source_path": "guide/setup.md",
+                "quote": "Run the setup steps here.",
+                "comment": "This is too vague; include the exact command and strict check.",
+                "created_at": "2026-05-28T12:00:00Z",
+                "updated_at": "2026-05-28T12:00:00Z",
+            },
+            {
+                "id": "ann_doc_setup",
+                "page": "guide/setup.html",
+                "source_path": "guide/setup.md",
+                "scope": "document",
+                "comment": "The setup page needs a failure-mode note.",
+                "created_at": "2026-05-28T12:01:00Z",
+                "updated_at": "2026-05-28T12:01:00Z",
+            },
+        ],
+    )
+
+    result = validate_review(output_dir)
+    summary_path = output_dir / ".md-for-human" / "review" / "review.md"
+    summary = summary_path.read_text(encoding="utf-8")
+
+    assert result.errors == []
+    assert result.warnings == []
+    assert result.annotation_count == 2
+    assert result.pages_touched == 1
+    assert "### ann_quote_setup" in summary
+    assert "> Run the setup steps here." in summary
+    assert "This is too vague; include the exact command and strict check." in summary
+    assert "### ann_doc_setup" in summary
+    assert "Scope: document" in summary
+    assert "type" not in summary.lower()
+
+
+def test_validate_review_v2_does_not_require_action_fields(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    output_dir = tmp_path / "output"
+    build_site(sample_site_copy, output_dir)
+    _write_review_artifact_v2(
+        output_dir,
+        [
+            {
+                "id": "ann_minimal",
+                "page": "guide/setup.html",
+                "source_path": "guide/setup.md",
+                "quote": "Run the setup steps here.",
+                "comment": "Replace this with concrete command guidance.",
+                "created_at": "2026-05-28T12:00:00Z",
+                "updated_at": "2026-05-28T12:00:00Z",
+            },
+        ],
+    )
+
+    result = validate_review(output_dir)
+
+    assert result.errors == []
+
+
+def test_validate_review_v2_requires_comment_and_target(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    output_dir = tmp_path / "output"
+    build_site(sample_site_copy, output_dir)
+    _write_review_artifact_v2(
+        output_dir,
+        [
+            {
+                "id": "ann_missing_comment",
+                "page": "guide/setup.html",
+                "source_path": "guide/setup.md",
+                "quote": "Run the setup steps here.",
+                "created_at": "2026-05-28T12:00:00Z",
+                "updated_at": "2026-05-28T12:00:00Z",
+            },
+            {
+                "id": "ann_missing_target",
+                "page": "guide/setup.html",
+                "source_path": "guide/setup.md",
+                "comment": "This lacks both quote and document scope.",
+                "created_at": "2026-05-28T12:01:00Z",
+                "updated_at": "2026-05-28T12:01:00Z",
+            },
+        ],
+    )
+
+    result = validate_review(output_dir)
+
+    assert "ann_missing_comment: required field comment must be a non-empty string" in result.errors
+    assert (
+        'ann_missing_target: annotation must include quote or scope "document"'
+        in result.errors
+    )
+
+
+def test_validate_review_v2_rejects_synthetic_landing_page_target(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    (sample_site_copy / "README.md").unlink()
+    output_dir = tmp_path / "output"
+    build_site(sample_site_copy, output_dir)
+    _write_review_artifact_v2(
+        output_dir,
+        [
+            {
+                "id": "ann_synthetic",
+                "page": "index.html",
+                "source_path": "index.html",
+                "quote": "Document Index",
+                "comment": "Synthetic pages are not valid review targets.",
+                "created_at": "2026-05-28T12:00:00Z",
+                "updated_at": "2026-05-28T12:00:00Z",
+            },
+        ],
+    )
+
+    result = validate_review(output_dir)
+
+    assert result.errors == [
+        'ann_synthetic: page "index.html" is not listed in manifest documents'
+    ]
 
 
 def test_validate_review_accepts_valid_artifact_and_generates_summary(

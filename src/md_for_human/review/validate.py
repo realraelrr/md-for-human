@@ -7,18 +7,26 @@ from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from md_for_human.review import SCHEMA_VERSION
+from md_for_human.review import SCHEMA_VERSION_V1, SCHEMA_VERSION_V2, SUPPORTED_SCHEMA_VERSIONS
 from md_for_human.review.artifacts import annotations_path
 from md_for_human.review.summary import write_review_summary
 
 ALLOWED_TYPES = {"comment", "suggest_delete", "suggest_insert", "suggest_replace"}
-COMMON_REQUIRED_FIELDS = (
+V1_COMMON_REQUIRED_FIELDS = (
     "id",
     "type",
     "page",
     "source_path",
     "quote",
     "note",
+    "created_at",
+    "updated_at",
+)
+V2_COMMON_REQUIRED_FIELDS = (
+    "id",
+    "page",
+    "source_path",
+    "comment",
     "created_at",
     "updated_at",
 )
@@ -177,9 +185,11 @@ def validate_artifact(
     errors: list[str],
     warnings: list[str],
 ) -> set[str]:
-    if artifact.get("schema_version") != SCHEMA_VERSION:
+    schema_version = artifact.get("schema_version")
+    if schema_version not in SUPPORTED_SCHEMA_VERSIONS:
         errors.append("annotations.json: schema_version missing or unsupported")
-    validate_created_by(artifact.get("created_by"), errors)
+    if schema_version == SCHEMA_VERSION_V1:
+        validate_created_by(artifact.get("created_by"), errors)
     source_manifest = artifact.get("source_manifest")
     if source_manifest != ".md-for-human/manifest.json":
         errors.append("annotations.json: source_manifest must be .md-for-human/manifest.json")
@@ -198,7 +208,10 @@ def validate_artifact(
             errors.append(f"{label}: annotation is not an object")
             continue
         annotation_id = validate_annotation_id(raw_annotation, label, seen_ids, errors)
-        validate_annotation_fields(raw_annotation, annotation_id, errors)
+        if schema_version == SCHEMA_VERSION_V2:
+            validate_annotation_fields_v2(raw_annotation, annotation_id, errors)
+        else:
+            validate_annotation_fields_v1(raw_annotation, annotation_id, errors)
         page = string_field(raw_annotation, "page")
         source_path = string_field(raw_annotation, "source_path")
         if page:
@@ -212,16 +225,20 @@ def validate_artifact(
                         f'{annotation_id}: source_path "{source_path}" does not match '
                         f'manifest documents for page "{page}"'
                     )
-                validate_quote(
-                    output_dir,
-                    page,
-                    source_path,
-                    raw_annotation,
-                    annotation_id,
-                    page_text_cache,
-                    errors,
-                    warnings,
+                should_validate_quote = schema_version != SCHEMA_VERSION_V2 or bool(
+                    string_field(raw_annotation, "quote")
                 )
+                if should_validate_quote:
+                    validate_quote(
+                        output_dir,
+                        page,
+                        source_path,
+                        raw_annotation,
+                        annotation_id,
+                        page_text_cache,
+                        errors,
+                        warnings,
+                    )
     return pages_touched
 
 
@@ -253,12 +270,12 @@ def validate_annotation_id(
     return annotation_id
 
 
-def validate_annotation_fields(
+def validate_annotation_fields_v1(
     annotation: dict[str, Any],
     annotation_id: str,
     errors: list[str],
 ) -> None:
-    for field in COMMON_REQUIRED_FIELDS:
+    for field in V1_COMMON_REQUIRED_FIELDS:
         if not non_empty_string(annotation.get(field)):
             errors.append(f"{annotation_id}: required field {field} must be a non-empty string")
 
@@ -278,6 +295,21 @@ def validate_annotation_fields(
         annotation.get("suggested_text")
     ):
         errors.append(f"{annotation_id}: required field suggested_text must be a non-empty string")
+
+
+def validate_annotation_fields_v2(
+    annotation: dict[str, Any],
+    annotation_id: str,
+    errors: list[str],
+) -> None:
+    for field in V2_COMMON_REQUIRED_FIELDS:
+        if not non_empty_string(annotation.get(field)):
+            errors.append(f"{annotation_id}: required field {field} must be a non-empty string")
+
+    quote = string_field(annotation, "quote")
+    scope = string_field(annotation, "scope")
+    if not quote and scope != "document":
+        errors.append(f'{annotation_id}: annotation must include quote or scope "document"')
 
 
 def validate_quote(
