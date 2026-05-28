@@ -11,6 +11,7 @@ from typing import Callable, Sequence, TextIO
 
 from md_for_human.builder import BuildResult, build_site
 from md_for_human.discovery import DiscoveryError
+from md_for_human.urls import decode_url_path
 
 
 class CliError(ValueError):
@@ -81,8 +82,8 @@ def main(
     should_fail_on_warning = args.fail_on_warning and bool(result.warnings)
     browser_opened = False
     if not args.no_open and not should_fail_on_warning and not verification_errors:
-        opener(result.entry_page.resolve().as_uri())
-        browser_opened = True
+        open_result = opener(result.entry_page.resolve().as_uri())
+        browser_opened = open_result is not False
 
     print_build_summary(result, browser_opened, stdout)
     for warning in result.warnings:
@@ -206,7 +207,7 @@ def verify_build_result(result: BuildResult) -> list[str]:
         for target in extract_local_targets(html):
             if target.startswith("#"):
                 continue
-            target_path = (page_path.parent / target).resolve()
+            target_path = (page_path.parent / decode_url_path(target)).resolve()
             if result.output_dir.resolve() not in target_path.parents and target_path != result.output_dir.resolve():
                 continue
             if not target_path.exists():

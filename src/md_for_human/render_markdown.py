@@ -15,6 +15,7 @@ from pygments.lexers import TextLexer, get_lexer_by_name
 from pygments.util import ClassNotFound
 
 from md_for_human.models import Document, RenderedPage, SiteManifest
+from md_for_human.urls import decode_url_path, relative_output_link
 
 
 def render_document(document: Document, manifest: SiteManifest) -> RenderedPage:
@@ -155,7 +156,8 @@ def _rewrite_local_target(
         warnings.append(f"Local link points outside the input tree: {raw_url}")
         return raw_url
 
-    resolved_path = _resolve_relative_path(document.relative_source_path.parent, parsed.path)
+    decoded_path = decode_url_path(parsed.path)
+    resolved_path = _resolve_relative_path(document.relative_source_path.parent, decoded_path)
     if _points_outside_tree(resolved_path):
         warnings.append(f"Local link points outside the input tree: {raw_url}")
         return raw_url
@@ -164,7 +166,7 @@ def _rewrite_local_target(
         target_document = document_lookup.get(resolved_path.as_posix().lower())
         if target_document is None:
             return raw_url
-        rewritten_path = _relative_output_link(document.output_path, target_document.output_path)
+        rewritten_path = relative_output_link(document.output_path, target_document.output_path)
         return urlunsplit(("", "", rewritten_path, parsed.query, parsed.fragment))
 
     referenced_assets.add(resolved_path)
@@ -178,15 +180,7 @@ def _resolve_relative_path(base_dir: PurePosixPath, raw_path: str) -> PurePosixP
 
 def _points_outside_tree(relative_path: PurePosixPath) -> bool:
     normalized = relative_path.as_posix()
-    return normalized == ".." or normalized.startswith("../")
-
-
-def _relative_output_link(source_output: PurePosixPath, target_output: PurePosixPath) -> str:
-    source_dir = source_output.parent.as_posix() or "."
-    relative_path = posixpath.relpath(target_output.as_posix(), start=source_dir)
-    if relative_path == ".":
-        return target_output.name
-    return relative_path
+    return normalized == ".." or normalized.startswith(("../", "/"))
 
 
 def _render_fence(

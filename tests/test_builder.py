@@ -56,6 +56,19 @@ def test_build_site_generates_synthetic_root_landing_page_when_needed(
     assert (output_dir / ".md-for-human" / "manifest.json").exists()
 
 
+def test_build_site_url_encodes_synthetic_landing_page_links(tmp_path: Path):
+    input_dir = tmp_path / "docs"
+    input_dir.mkdir()
+    (input_dir / "space file.md").write_text("# Space File\n", encoding="utf-8")
+    output_dir = tmp_path / "output"
+
+    result = build_site(input_dir, output_dir)
+    landing_html = result.entry_page.read_text(encoding="utf-8")
+
+    assert 'href="space%20file.html"' in landing_html
+    assert 'href="space file.html"' not in landing_html
+
+
 def test_build_site_does_not_create_output_when_discovery_fails(
     tmp_path: Path,
 ):

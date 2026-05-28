@@ -71,6 +71,30 @@ def test_main_opens_browser_once_on_success(sample_site_copy: Path, tmp_path: Pa
     assert "Browser opened: yes" in stdout.getvalue()
 
 
+def test_main_reports_browser_not_opened_when_opener_returns_false(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    opener_calls: list[str] = []
+    stdout = io.StringIO()
+    output_dir = tmp_path / "output"
+
+    def opener(url: str) -> bool:
+        opener_calls.append(url)
+        return False
+
+    result = main(
+        [str(sample_site_copy), "--output", str(output_dir)],
+        opener=opener,
+        stdout=stdout,
+        stderr=io.StringIO(),
+    )
+
+    assert result == 0
+    assert opener_calls == [(output_dir / "index.html").resolve().as_uri()]
+    assert "Browser opened: no" in stdout.getvalue()
+
+
 def test_main_does_not_open_browser_on_failure(tmp_path: Path):
     opener_calls: list[str] = []
     stderr = io.StringIO()
@@ -315,6 +339,44 @@ def test_main_verify_accepts_single_file_entry_page(tmp_path: Path):
 
     assert result == 0
     assert (output_dir / "notes.html").exists()
+    assert "Verification: passed" in stdout.getvalue()
+    assert stderr.getvalue() == ""
+
+
+def test_main_verify_accepts_url_encoded_local_links_and_assets(tmp_path: Path):
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    input_dir = tmp_path / "docs"
+    images_dir = input_dir / "images"
+    images_dir.mkdir(parents=True)
+    (images_dir / "diagram image.png").write_bytes(b"png")
+    (input_dir / "space file.md").write_text("# Space File\n", encoding="utf-8")
+    (input_dir / "index.md").write_text(
+        "\n".join(
+            [
+                "# Index",
+                "",
+                "[Encoded](space%20file.md)",
+                "",
+                "![Diagram](images/diagram%20image.png)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "output"
+
+    result = main(
+        [str(input_dir), "--output", str(output_dir), "--verify", "--no-open"],
+        opener=lambda *_: None,
+        stdout=stdout,
+        stderr=stderr,
+    )
+    index_html = (output_dir / "index.html").read_text(encoding="utf-8")
+
+    assert result == 0
+    assert 'href="space%20file.html"' in index_html
+    assert 'src="images/diagram%20image.png"' in index_html
+    assert (output_dir / "images" / "diagram image.png").exists()
     assert "Verification: passed" in stdout.getvalue()
     assert stderr.getvalue() == ""
 

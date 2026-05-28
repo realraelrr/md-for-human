@@ -75,6 +75,21 @@ def test_render_document_preserves_external_links_warns_for_out_of_tree_paths_an
     assert 'src="images/diagram.png"' in page.content_html
 
 
+def test_render_document_warns_for_url_encoded_absolute_local_paths(tmp_path: Path):
+    input_dir = tmp_path / "docs"
+    input_dir.mkdir()
+    (input_dir / "page.md").write_text(
+        "# Page\n\n[Encoded absolute](%2Foutside.md)\n",
+        encoding="utf-8",
+    )
+
+    manifest = discover_site(input_dir, tmp_path / "output")
+    page = render_document(manifest.documents[0], manifest)
+
+    assert any("outside the input tree" in warning for warning in page.warnings)
+    assert 'href="%2Foutside.md"' in page.content_html
+
+
 def test_render_document_falls_back_to_file_stem_without_toc(sample_site_copy: Path, tmp_path: Path):
     manifest = discover_site(sample_site_copy, tmp_path / "output")
     page_without_h1 = next(
