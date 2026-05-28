@@ -24,10 +24,14 @@ def summary_path(output_dir: Path) -> Path:
     return review_dir(output_dir) / SUMMARY_FILE
 
 
-def empty_artifact(created_by_name: str = "local-reviewer") -> dict[str, Any]:
+def empty_artifact(
+    created_by_name: str = "local-reviewer",
+    *,
+    created_by_kind: str = "agent",
+) -> dict[str, Any]:
     return {
         "schema_version": SCHEMA_VERSION,
-        "created_by": {"kind": "agent", "name": created_by_name},
+        "created_by": {"kind": created_by_kind, "name": created_by_name},
         "source_manifest": ".md-for-human/manifest.json",
         "annotations": [],
     }

@@ -64,6 +64,32 @@ def validate_review(output_dir: Path) -> ReviewValidationResult:
     if artifact is None:
         return ReviewValidationResult(errors, warnings, 0, 0, None)
 
+    return validate_review_artifact(
+        output_dir,
+        artifact,
+        documents=documents,
+        errors=errors,
+        warnings=warnings,
+        write_summary=True,
+    )
+
+
+def validate_review_artifact(
+    output_dir: Path,
+    artifact: Any,
+    *,
+    documents: dict[str, ManifestDocument] | None = None,
+    errors: list[str] | None = None,
+    warnings: list[str] | None = None,
+    write_summary: bool = False,
+) -> ReviewValidationResult:
+    output_dir = Path(output_dir)
+    errors = [] if errors is None else errors
+    warnings = [] if warnings is None else warnings
+    if documents is None:
+        manifest = load_json_file(output_dir / ".md-for-human" / "manifest.json", errors)
+        documents = parse_manifest_documents(manifest, errors)
+
     annotation_count = 0
     pages_touched: set[str] = set()
     if isinstance(artifact, dict):
@@ -75,7 +101,7 @@ def validate_review(output_dir: Path) -> ReviewValidationResult:
         errors.append("annotations.json: top-level object is not an object")
 
     written_summary_path: Path | None = None
-    if isinstance(artifact, dict) and isinstance(artifact.get("annotations"), list):
+    if write_summary and isinstance(artifact, dict) and isinstance(artifact.get("annotations"), list):
         written_summary_path = write_review_summary(output_dir, artifact)
 
     return ReviewValidationResult(

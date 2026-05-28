@@ -65,6 +65,12 @@ Validate review annotations written by a human or agent against an existing gene
 md-for-human --validate-review /tmp/md-for-human-sample-site
 ```
 
+Start a local browser review UI for an existing generated site:
+
+```bash
+md-for-human --review /tmp/md-for-human-sample-site
+```
+
 Use `--no-open` for headless runs, `--verify` for structural checks, and
 `--fail-on-warning` for strict automation. Use `--strict` for agent handoff; it
 combines `--verify --fail-on-warning --no-open`.
@@ -131,6 +137,20 @@ md-for-human --validate-review path/to/output
 
 Add `--fail-on-warning` when ambiguous or missing quote anchors should fail
 automation.
+
+Use the browser review UI when a human wants paper-style annotations:
+
+```bash
+md-for-human --review path/to/output
+```
+
+The review server binds to `127.0.0.1`, injects the review UI at request time,
+and leaves generated HTML files unchanged. API routes live under
+`/__mdfh_review/`, require a per-session token, do not enable CORS, and only
+write `.md-for-human/review/annotations.json` plus the derived `review.md`.
+The UI sends full artifact drafts, but the server rejects schema, page, and
+source-path hard failures before writing. Missing or repeated quote anchors are
+saved as warnings so the artifact remains available for agent handoff.
 
 ## Agent Skill
 
