@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import secrets
+import time
 import webbrowser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -10,6 +11,7 @@ from typing import Any, Callable, TextIO
 from urllib.parse import unquote, urlsplit
 
 from md_for_human.review import SCHEMA_VERSION
+from md_for_human.builder import build_site_preserving_review
 from md_for_human.review.artifacts import (
     annotations_path,
     empty_artifact,
@@ -51,9 +53,30 @@ class ReviewAuthError(ReviewServerError):
 
 
 class ReviewServerApp:
-    def __init__(self, output_dir: Path, *, token: str) -> None:
+    def __init__(
+        self,
+        output_dir: Path,
+        *,
+        token: str,
+        source_input: Path | None = None,
+        rebuild_site: Callable[[Path, Path], object] = build_site_preserving_review,
+        source_poll_interval: float = 1.0,
+        rebuild_debounce: float = 0.5,
+    ) -> None:
         self.output_dir = Path(output_dir)
         self.token = token
+        self.source_input = Path(source_input) if source_input is not None else None
+        self._rebuild_site = rebuild_site
+        self._source_poll_interval = source_poll_interval
+        self._rebuild_debounce = rebuild_debounce
+        self._last_source_poll = 0.0
+        self._last_source_snapshot = (
+            snapshot_source_tree(self.source_input) if self.source_input is not None else {}
+        )
+        self._pending_source_snapshot: dict[str, tuple[int, int]] | None = None
+        self._pending_since = 0.0
+        self._build_version = 0
+        self._build_error: str | None = None
         self.manifest_path = self.output_dir / ".md-for-human" / "manifest.json"
         if not self.manifest_path.exists():
             raise ReviewServerError(f"manifest.json is missing in {self.output_dir}")
@@ -61,6 +84,7 @@ class ReviewServerApp:
 
     def get_state(self, *, token: str) -> dict[str, Any]:
         self._require_token(token)
+        self._maybe_rebuild()
         artifact = self._ensure_artifact()
         validation = validate_review(self.output_dir)
         manifest_errors: list[str] = []
@@ -70,6 +94,7 @@ class ReviewServerApp:
         return {
             "api_prefix": REVIEW_API_PREFIX,
             "artifact": artifact,
+            "build": self._build_payload(),
             "manifest": manifest,
             "validation": validation_payload(validation),
         }
@@ -98,10 +123,12 @@ class ReviewServerApp:
 
     def validate(self, *, token: str) -> dict[str, Any]:
         self._require_token(token)
+        self._maybe_rebuild()
         self._ensure_artifact()
         return {"validation": validation_payload(validate_review(self.output_dir))}
 
     def render_site_file(self, relative_url_path: str) -> str:
+        self._maybe_rebuild()
         relative_path = self._site_path_from_url(relative_url_path)
         path = self._resolve_site_path(relative_path)
         if path.suffix.lower() != ".html":
@@ -110,6 +137,7 @@ class ReviewServerApp:
         return inject_review_client(html, self.token)
 
     def read_static_file(self, relative_url_path: str) -> tuple[bytes, str]:
+        self._maybe_rebuild()
         relative_path = self._site_path_from_url(relative_url_path)
         path = self._resolve_site_path(relative_path)
         return path.read_bytes(), content_type_for_path(path)
@@ -163,6 +191,67 @@ class ReviewServerApp:
     def _require_token(self, token: str) -> None:
         if not token or not secrets.compare_digest(token, self.token):
             raise ReviewAuthError()
+
+    def _build_payload(self) -> dict[str, Any]:
+        return {
+            "watching": self.source_input is not None,
+            "version": self._build_version,
+            "error": self._build_error,
+            "entry_page": self.entry_page(),
+        }
+
+    def _maybe_rebuild(self) -> None:
+        if self.source_input is None:
+            return
+        now = time.monotonic()
+        if now - self._last_source_poll < self._source_poll_interval:
+            return
+        self._last_source_poll = now
+        current_snapshot = snapshot_source_tree(self.source_input)
+        if current_snapshot == self._last_source_snapshot:
+            self._pending_source_snapshot = None
+            self._pending_since = 0.0
+            return
+        if current_snapshot != self._pending_source_snapshot:
+            self._pending_source_snapshot = current_snapshot
+            self._pending_since = now
+            if self._rebuild_debounce > 0:
+                return
+        if now - self._pending_since < self._rebuild_debounce:
+            return
+        try:
+            self._rebuild_site(self.source_input, self.output_dir)
+        except Exception as exc:
+            self._build_error = str(exc)
+            self._last_source_snapshot = current_snapshot
+            self._pending_source_snapshot = None
+            return
+        self._build_version += 1
+        self._build_error = None
+        self._last_source_snapshot = current_snapshot
+        self._pending_source_snapshot = None
+        self.manifest_path = self.output_dir / ".md-for-human" / "manifest.json"
+        self._ensure_artifact()
+
+
+def snapshot_source_tree(source_input: Path) -> dict[str, tuple[int, int]]:
+    source_input = Path(source_input)
+    if source_input.is_file() or source_input.is_symlink():
+        return {source_input.name: stat_signature(source_input)}
+    if not source_input.exists():
+        return {}
+    snapshot: dict[str, tuple[int, int]] = {}
+    for path in sorted(source_input.rglob("*")):
+        if not path.is_file() and not path.is_symlink():
+            continue
+        relative = path.relative_to(source_input).as_posix()
+        snapshot[relative] = stat_signature(path)
+    return snapshot
+
+
+def stat_signature(path: Path) -> tuple[int, int]:
+    stat_result = path.lstat()
+    return stat_result.st_mtime_ns, stat_result.st_size
 
 
 def validation_payload(result: ReviewValidationResult) -> dict[str, Any]:
@@ -287,17 +376,19 @@ body.mdfh-review-rail-open .layout {
 }
 
 .mdfh-review-list {
-  display: grid;
-  gap: 0.65rem;
+  position: relative;
+  min-height: 55vh;
   padding-top: 0.35rem;
 }
 
 .mdfh-review-item {
-  position: relative;
+  position: fixed;
+  right: 1rem;
+  width: calc(min(24rem, 30vw) - 2rem);
   display: grid;
   gap: 0.28rem;
-  width: 100%;
   text-align: left;
+  transition: top 120ms ease;
 }
 
 .mdfh-review-item::before {
@@ -325,8 +416,9 @@ body.mdfh-review-rail-open .layout {
 }
 
 .mdfh-review-underline {
-  border-bottom: 2px solid color-mix(in srgb, var(--accent) 78%, white);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-bottom: 3px solid #facc15;
+  background: rgba(250, 204, 21, 0.24);
+  box-shadow: inset 0 -0.22em 0 rgba(250, 204, 21, 0.22);
   cursor: pointer;
 }
 
@@ -337,6 +429,21 @@ body.mdfh-review-rail-open .layout {
 .mdfh-review-flash {
   animation: mdfh-review-flash 1.5s ease-out;
   border-radius: 0.25rem;
+}
+
+.mdfh-review-connectors {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+}
+
+.mdfh-review-connectors line {
+  stroke: #facc15;
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
 }
 
 @keyframes mdfh-review-flash {
@@ -363,12 +470,18 @@ body.mdfh-review-rail-open .layout {
     border-left: 0;
     border-top: 1px solid var(--border);
   }
+
+  .mdfh-review-connectors {
+    display: none;
+  }
 }
 </style>
 """.strip()
 
 REVIEW_CLIENT_PANEL = """
 <button type="button" class="mdfh-review-open" data-mdfh-review-open>Comment</button>
+<svg class="mdfh-review-connectors" data-mdfh-review-connector-layer
+  aria-hidden="true"></svg>
 <aside class="mdfh-review-rail" data-mdfh-review-rail data-mdfh-review-panel
   aria-label="Document comments" hidden>
   <div class="mdfh-review-rail-header">
@@ -401,6 +514,7 @@ REVIEW_CLIENT_JS = r"""
   const sourcePath = document.body.dataset.mdfhSourcePath || "";
   const els = {
     open: document.querySelector("[data-mdfh-review-open]"),
+    connectors: document.querySelector("[data-mdfh-review-connector-layer]"),
     close: rail.querySelector("[data-mdfh-review-close]"),
     anchor: rail.querySelector("[data-mdfh-review-anchor]"),
     comment: rail.querySelector("[data-mdfh-review-comment-input]"),
@@ -415,6 +529,8 @@ REVIEW_CLIENT_JS = r"""
     editingId: "",
     pendingSpan: null,
     toastTimer: 0,
+    buildVersion: null,
+    anchorState: new Map(),
   };
 
   const normalize = (value) => String(value || "").split(/\s+/).filter(Boolean).join(" ");
@@ -451,11 +567,13 @@ REVIEW_CLIENT_JS = r"""
   function openRail() {
     rail.hidden = false;
     document.body.classList.add("mdfh-review-rail-open");
+    schedulePositioning();
   }
 
   function closeRail() {
     rail.hidden = true;
     document.body.classList.remove("mdfh-review-rail-open");
+    updateConnectors();
   }
 
   function toast(message, validation = null) {
@@ -618,11 +736,14 @@ REVIEW_CLIENT_JS = r"""
 
   function renderAnnotations() {
     unwrapSavedMarkers();
+    state.anchorState = new Map();
     const annotations = currentAnnotations();
     annotations
       .filter((annotation) => annotation.page === page && annotation.quote)
       .forEach((annotation) => markSavedQuote(annotation));
     renderList(annotations);
+    positionCommentCards();
+    updateConnectors();
   }
 
   function renderList(annotations) {
@@ -630,30 +751,32 @@ REVIEW_CLIENT_JS = r"""
       els.list.innerHTML = "";
       return;
     }
-    els.list.innerHTML = annotations.map((annotation) => `
+    const sortedAnnotations = annotations.slice().sort((left, right) => {
+      return annotationSortTop(left) - annotationSortTop(right);
+    });
+    els.list.innerHTML = sortedAnnotations.map((annotation) => {
+      const status = state.anchorState.get(annotation.id);
+      const warning = status && status.warning ? `<small>${escapeHtml(status.warning)}</small>` : "";
+      return `
       <button type="button" class="mdfh-review-item" data-mdfh-review-item="${escapeAttr(annotation.id)}">
         <span>${escapeHtml(annotation.comment)}</span>
         <small>${escapeHtml(annotation.quote || "Document comment")}</small>
+        ${warning}
       </button>
-    `).join("");
+    `;
+    }).join("");
   }
 
   function markSavedQuote(annotation) {
-    if (countOccurrences(normalize(content.innerText), normalize(annotation.quote)) !== 1) {
+    const ranges = findQuoteRanges(annotation.quote);
+    if (ranges.length !== 1) {
+      state.anchorState.set(annotation.id, {
+        warning: ranges.length === 0 ? "Quote not found on this page." : "Quote appears more than once.",
+      });
       return;
     }
-    const range = findRangeInTextNode(annotation.quote);
-    if (!range) {
-      return;
-    }
-    const span = document.createElement("span");
-    span.className = "mdfh-review-underline";
-    span.dataset.mdfhReviewAnchorId = annotation.id;
-    try {
-      range.surroundContents(span);
-    } catch (_error) {
-      return;
-    }
+    wrapQuoteSegments(ranges[0].segments, annotation.id);
+    state.anchorState.set(annotation.id, {});
   }
 
   function unwrapSavedMarkers() {
@@ -667,20 +790,116 @@ REVIEW_CLIENT_JS = r"""
     });
   }
 
-  function findRangeInTextNode(quote) {
+  function findQuoteRanges(quote) {
+    const parts = [];
     const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
     let node = walker.nextNode();
+    let text = "";
     while (node) {
-      const index = node.nodeValue.indexOf(quote);
-      if (index !== -1) {
-        const range = document.createRange();
-        range.setStart(node, index);
-        range.setEnd(node, index + quote.length);
-        return range;
-      }
+      const value = node.nodeValue || "";
+      parts.push({ node, start: text.length, end: text.length + value.length });
+      text += value;
       node = walker.nextNode();
     }
-    return null;
+    const ranges = [];
+    let index = 0;
+    while (quote && true) {
+      index = text.indexOf(quote, index);
+      if (index === -1) {
+        break;
+      }
+      const end = index + quote.length;
+      const segments = parts
+        .filter((part) => part.end > index && part.start < end)
+        .map((part) => ({
+          node: part.node,
+          start: Math.max(0, index - part.start),
+          end: Math.min(part.end - part.start, end - part.start),
+        }))
+        .filter((segment) => segment.end > segment.start);
+      ranges.push({ start: index, end, segments });
+      index = end;
+    }
+    return ranges;
+  }
+
+  function wrapQuoteSegments(segments, annotationId) {
+    segments.slice().reverse().forEach((segment) => {
+      const textNode = segment.node;
+      const parent = textNode.parentNode;
+      if (!parent) {
+        return;
+      }
+      const after = textNode.splitText(segment.end);
+      const middle = textNode.splitText(segment.start);
+      const span = document.createElement("span");
+      span.className = "mdfh-review-underline";
+      span.dataset.mdfhReviewAnchorId = annotationId;
+      parent.insertBefore(span, after);
+      span.appendChild(middle);
+    });
+  }
+
+  function annotationSortTop(annotation) {
+    if (annotation.page !== page) {
+      return Number.MAX_SAFE_INTEGER;
+    }
+    const marker = firstMarkerForAnnotation(annotation.id);
+    if (!marker) {
+      return annotation.scope === "document" ? 0 : Number.MAX_SAFE_INTEGER - 1;
+    }
+    return marker.getBoundingClientRect().top + window.scrollY;
+  }
+
+  function firstMarkerForAnnotation(annotationId) {
+    return content.querySelector(`[data-mdfh-review-anchor-id="${cssEscape(annotationId)}"]`);
+  }
+
+  function positionCommentCards() {
+    const railRect = rail.getBoundingClientRect();
+    const cards = Array.from(els.list.querySelectorAll("[data-mdfh-review-item]"));
+    let nextTop = 72;
+    cards.forEach((card) => {
+      const annotation = currentAnnotations().find((item) => item.id === card.dataset.mdfhReviewItem);
+      const marker = annotation ? firstMarkerForAnnotation(annotation.id) : null;
+      const desiredTop = marker ? marker.getBoundingClientRect().top : 72;
+      const top = Math.max(72, desiredTop, nextTop);
+      card.style.top = `${top}px`;
+      nextTop = top + card.offsetHeight + 10;
+    });
+    els.list.style.minHeight = `${Math.max(window.innerHeight - railRect.top, nextTop + 16)}px`;
+  }
+
+  function updateConnectors() {
+    if (!els.connectors) {
+      return;
+    }
+    els.connectors.innerHTML = "";
+    if (rail.hidden) {
+      return;
+    }
+    els.list.querySelectorAll("[data-mdfh-review-item]").forEach((card) => {
+      const annotation = currentAnnotations().find((item) => item.id === card.dataset.mdfhReviewItem);
+      const marker = annotation ? firstMarkerForAnnotation(annotation.id) : null;
+      if (!marker) {
+        return;
+      }
+      const markerRect = marker.getBoundingClientRect();
+      const cardRect = card.getBoundingClientRect();
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("x1", String(markerRect.right));
+      line.setAttribute("y1", String(markerRect.top + markerRect.height / 2));
+      line.setAttribute("x2", String(cardRect.left));
+      line.setAttribute("y2", String(cardRect.top + Math.min(32, cardRect.height / 2)));
+      els.connectors.appendChild(line);
+    });
+  }
+
+  function schedulePositioning() {
+    window.requestAnimationFrame(() => {
+      positionCommentCards();
+      updateConnectors();
+    });
   }
 
   function editAnnotation(annotation) {
@@ -701,14 +920,12 @@ REVIEW_CLIENT_JS = r"""
   }
 
   function locateQuote(quote) {
-    const normalizedQuote = normalize(quote);
-    const normalizedText = normalize(content.innerText || content.textContent || "");
-    const count = countOccurrences(normalizedText, normalizedQuote);
-    if (count !== 1) {
-      toast(count === 0 ? "Quote was not found on this page." : "Quote appears more than once.");
+    const ranges = findQuoteRanges(quote);
+    if (ranges.length !== 1) {
+      toast(ranges.length === 0 ? "Quote was not found on this page." : "Quote appears more than once.");
       return;
     }
-    let target = content.querySelector(`[data-mdfh-review-anchor-id="${cssEscape(state.editingId)}"]`);
+    let target = firstMarkerForAnnotation(state.editingId);
     if (!target && window.find && window.find(quote)) {
       const selection = window.getSelection();
       if (selection && selection.rangeCount > 0) {
@@ -725,6 +942,10 @@ REVIEW_CLIENT_JS = r"""
     block.scrollIntoView({ behavior: "smooth", block: "center" });
     block.classList.add("mdfh-review-flash");
     setTimeout(() => block.classList.remove("mdfh-review-flash"), 1600);
+    window.requestAnimationFrame(() => {
+      positionCommentCards();
+      updateConnectors();
+    });
   }
 
   function countOccurrences(haystack, needle) {
@@ -794,16 +1015,47 @@ REVIEW_CLIENT_JS = r"""
   els.close.addEventListener("click", closeRail);
   els.save.addEventListener("click", saveCurrent);
   els.del.addEventListener("click", deleteCurrent);
+  window.addEventListener("scroll", schedulePositioning, { passive: true });
+  window.addEventListener("resize", schedulePositioning);
 
   request("/state")
-    .then((payload) => {
-      state.artifact = ensureV2Artifact(payload.artifact);
-      renderAnnotations();
-      if (payload.validation && payload.validation.errors && payload.validation.errors.length) {
-        toast("", payload.validation);
-      }
-    })
+    .then((payload) => handleStatePayload(payload, { initial: true }))
     .catch((error) => toast(error.message));
+
+  window.setInterval(() => {
+    request("/state")
+      .then((payload) => handleStatePayload(payload, { initial: false }))
+      .catch((error) => toast(error.message));
+  }, 1500);
+
+  function handleStatePayload(payload, { initial }) {
+    const incomingVersion = payload.build ? payload.build.version : 0;
+    if (state.buildVersion === null) {
+      state.buildVersion = incomingVersion;
+    } else if (incomingVersion !== state.buildVersion) {
+      const pages = payload.manifest && Array.isArray(payload.manifest.pages)
+        ? payload.manifest.pages
+        : [];
+      const entryPage = payload.build && payload.build.entry_page ? payload.build.entry_page : "index.html";
+      if (pages.includes(page)) {
+        window.location.reload();
+      } else {
+        window.location.href = `/${entryPage}`;
+      }
+      return;
+    }
+    state.artifact = ensureV2Artifact(payload.artifact);
+    renderAnnotations();
+    const pageHasAnnotations = currentAnnotations().some((annotation) => annotation.page === page);
+    if (initial && pageHasAnnotations) {
+      openRail();
+    }
+    if (payload.build && payload.build.error) {
+      toast(payload.build.error);
+    } else if (payload.validation && payload.validation.errors && payload.validation.errors.length) {
+      toast("", payload.validation);
+    }
+  }
 })();
 """.strip()
 
@@ -929,6 +1181,7 @@ def make_review_handler(app: ReviewServerApp) -> type[BaseHTTPRequestHandler]:
 def serve_review(
     output_dir: Path,
     *,
+    source_input: Path | None = None,
     host: str = LOCAL_REVIEW_HOST,
     port: int = 0,
     opener: Callable[[str], object] = webbrowser.open,
@@ -936,7 +1189,7 @@ def serve_review(
 ) -> int:
     stdout = stdout or None
     token = secrets.token_urlsafe(24)
-    app = ReviewServerApp(output_dir, token=token)
+    app = ReviewServerApp(output_dir, token=token, source_input=source_input)
     handler = make_review_handler(app)
     server = ThreadingHTTPServer((host, port), handler)
     url = f"http://{host}:{server.server_port}/"

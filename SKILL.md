@@ -13,24 +13,25 @@ rewrite, summarize, or restyle the content unless the user explicitly asks.
 1. Pick a Markdown file or directory.
 2. Choose an output directory outside the input tree, usually
    `${TMPDIR:-/tmp}/md-for-human-preview`.
-3. Build the site:
+3. Unless the user explicitly says they are opening the document only for
+   reading, start review mode directly. This builds the site, opens the local
+   review UI, and enables source hot reload:
+
+```bash
+md-for-human path/to/input -o "${TMPDIR:-/tmp}/md-for-human-preview" --review
+```
+
+4. If the user explicitly asks only to read the document, build a plain static
+   preview instead:
 
 ```bash
 md-for-human path/to/input -o "${TMPDIR:-/tmp}/md-for-human-preview" --overwrite
 ```
 
-4. Unless the user explicitly says they are opening the document only for
-   reading, start the local browser review UI, also called review mode:
-
-```bash
-md-for-human --review "${TMPDIR:-/tmp}/md-for-human-preview"
-```
-
 If `md-for-human` is not found, use the conda environment directly:
 
 ```bash
-conda run -n md-for-human md-for-human path/to/input -o "${TMPDIR:-/tmp}/md-for-human-preview" --overwrite
-conda run -n md-for-human md-for-human --review "${TMPDIR:-/tmp}/md-for-human-preview"
+conda run -n md-for-human md-for-human path/to/input -o "${TMPDIR:-/tmp}/md-for-human-preview" --review
 ```
 
 Inside this repository checkout, the module command is also valid:

@@ -160,6 +160,71 @@ def test_review_server_valid_saved_artifact_passes_validate_review(
     assert result.annotation_count == 1
 
 
+def test_review_server_rebuilds_when_source_tree_changes(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    output_dir = tmp_path / "output"
+    build_site(sample_site_copy, output_dir)
+    rebuilds: list[tuple[Path, Path]] = []
+
+    def fake_rebuild(source_input: Path, rebuild_output: Path) -> None:
+        rebuilds.append((source_input, rebuild_output))
+        build_site(source_input, rebuild_output)
+
+    app = ReviewServerApp(
+        output_dir,
+        token="test-token",
+        source_input=sample_site_copy,
+        rebuild_site=fake_rebuild,
+        source_poll_interval=0,
+        rebuild_debounce=0,
+    )
+    initial_state = app.get_state(token="test-token")
+
+    (sample_site_copy / "guide" / "setup.md").write_text(
+        "# Setup\n\n## Install\n\nRun the updated setup steps here.\n",
+        encoding="utf-8",
+    )
+    changed_state = app.get_state(token="test-token")
+
+    assert rebuilds == [(sample_site_copy, output_dir)]
+    assert changed_state["build"]["version"] == initial_state["build"]["version"] + 1
+    assert changed_state["build"]["error"] is None
+    assert "updated setup steps" in (output_dir / "guide" / "setup.html").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_review_server_rebuild_failure_keeps_last_good_output(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    output_dir = tmp_path / "output"
+    build_site(sample_site_copy, output_dir)
+    original_html = (output_dir / "guide" / "setup.html").read_text(encoding="utf-8")
+
+    def failing_rebuild(_source_input: Path, _rebuild_output: Path) -> None:
+        raise RuntimeError("broken markdown")
+
+    app = ReviewServerApp(
+        output_dir,
+        token="test-token",
+        source_input=sample_site_copy,
+        rebuild_site=failing_rebuild,
+        source_poll_interval=0,
+        rebuild_debounce=0,
+    )
+    initial_state = app.get_state(token="test-token")
+
+    (sample_site_copy / "guide" / "setup.md").write_text("# Broken\n", encoding="utf-8")
+    changed_state = app.get_state(token="test-token")
+
+    assert changed_state["build"]["version"] == initial_state["build"]["version"]
+    assert "broken markdown" in changed_state["build"]["error"]
+    assert (output_dir / "guide" / "setup.html").read_text(encoding="utf-8") == original_html
+
+
 def test_review_server_injects_client_without_modifying_html(
     sample_site_copy: Path,
     tmp_path: Path,
@@ -232,8 +297,13 @@ def test_review_server_injected_ui_uses_comment_rail_without_action_form(
     served = app.render_site_file("guide/setup.html")
 
     assert "data-mdfh-review-rail" in served
+    assert "data-mdfh-review-connector-layer" in served
     assert "data-mdfh-review-comment-input" in served
     assert "mdfh-review-underline" in served
+    assert "positionCommentCards" in served
+    assert "updateConnectors" in served
+    assert "findQuoteRanges" in served
+    assert "/state" in served
     assert "locateQuote" in served
     assert "scrollIntoView" in served
     assert "suggest_insert" not in served

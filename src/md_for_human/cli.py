@@ -8,12 +8,14 @@ import webbrowser
 from pathlib import Path
 from typing import Callable, Sequence, TextIO
 
-from md_for_human.builder import BuildResult, build_site
+from md_for_human.builder import BuildResult, build_site, build_site_preserving_review
 from md_for_human.discovery import DiscoveryError
 from md_for_human.html_targets import extract_local_targets
 from md_for_human.review.server import ReviewServerError, serve_review
 from md_for_human.review.validate import ReviewValidationResult, validate_review
 from md_for_human.urls import decode_url_path
+
+BUILD_REVIEW_SENTINEL = "__mdfh_build_review__"
 
 
 class CliError(ValueError):
@@ -69,8 +71,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--review",
+        nargs="?",
+        const=BUILD_REVIEW_SENTINEL,
         metavar="OUTPUT_DIR",
-        help="Start a local browser review UI for an existing generated site output directory",
+        help=(
+            "Start a local browser review UI. With INPUT_PATH, build to --output first "
+            "and enable source hot reload; without INPUT_PATH, review an existing output directory."
+        ),
     )
     return parser
 
@@ -95,7 +102,10 @@ def main(
             stderr=stderr,
         )
 
-    if args.review:
+    if args.review and args.input_path is None:
+        if args.review == BUILD_REVIEW_SENTINEL:
+            print("Error: --review needs INPUT_PATH or OUTPUT_DIR.", file=stderr)
+            return 1
         return serve_review_output(
             Path(args.review),
             opener=opener,
@@ -109,6 +119,18 @@ def main(
             file=stderr,
         )
         return 1
+
+    if args.review:
+        review_output_arg = args.output
+        if args.review != BUILD_REVIEW_SENTINEL:
+            review_output_arg = args.review
+        return build_and_serve_review_output(
+            Path(args.input_path),
+            output_arg=review_output_arg,
+            opener=opener,
+            stdout=stdout,
+            stderr=stderr,
+        )
 
     try:
         input_path = validate_input_path(Path(args.input_path))
@@ -191,6 +213,20 @@ def prepare_output_dir(
     custom_output: bool,
     overwrite: bool,
 ) -> None:
+    validate_output_location(input_path, output_dir)
+
+    if not output_dir.exists() and not output_dir.is_symlink():
+        return
+
+    if custom_output and not overwrite:
+        raise CliError(
+            f"Custom output directory already exists: {output_dir}. Use --overwrite to replace it."
+        )
+
+    remove_existing_path(output_dir)
+
+
+def validate_output_location(input_path: Path, output_dir: Path) -> None:
     try:
         comparison_output_dir = normalize_for_containment_check(output_dir)
     except RuntimeError as exc:
@@ -206,16 +242,6 @@ def prepare_output_dir(
         raise CliError("Output directory must not be the same as the input Markdown file.")
     elif comparison_output_dir in input_path.parents:
         raise CliError("Output directory must not be an ancestor of the input Markdown file.")
-
-    if not output_dir.exists() and not output_dir.is_symlink():
-        return
-
-    if custom_output and not overwrite:
-        raise CliError(
-            f"Custom output directory already exists: {output_dir}. Use --overwrite to replace it."
-        )
-
-    remove_existing_path(output_dir)
 
 
 def normalize_for_containment_check(path: Path) -> Path:
@@ -253,7 +279,32 @@ def serve_review_output(
         return serve_review(resolved_output_dir, opener=opener, stdout=stdout)
     except (CliError, ReviewServerError, OSError) as exc:
         print(f"Error: {exc}", file=stderr)
-        return 1
+    return 1
+
+
+def build_and_serve_review_output(
+    input_path: Path,
+    *,
+    output_arg: str | None,
+    opener: Callable[[str], object],
+    stdout: TextIO,
+    stderr: TextIO,
+) -> int:
+    try:
+        resolved_input = validate_input_path(input_path)
+        output_dir, _custom_output = determine_output_dir(resolved_input, output_arg)
+        validate_output_location(resolved_input, output_dir)
+        build_site_preserving_review(resolved_input, output_dir)
+        resolved_output_dir = validate_review_output_dir(output_dir)
+        return serve_review(
+            resolved_output_dir,
+            source_input=resolved_input,
+            opener=opener,
+            stdout=stdout,
+        )
+    except (CliError, DiscoveryError, OSError, ReviewServerError) as exc:
+        print(f"Error: {exc}", file=stderr)
+    return 1
 
 
 def validate_review_output(

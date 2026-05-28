@@ -65,7 +65,13 @@ Validate review annotations written by a human or agent against an existing gene
 md-for-human --validate-review /tmp/md-for-human-sample-site
 ```
 
-Start a local browser review UI for an existing generated site:
+Build and start local review mode with source hot reload:
+
+```bash
+md-for-human path/to/agent-output -o /tmp/md-for-human-review --review
+```
+
+Start a local browser review UI for an existing generated site without source hot reload:
 
 ```bash
 md-for-human --review /tmp/md-for-human-sample-site
@@ -143,8 +149,12 @@ automation.
 Use the browser review UI when a human wants paper-style annotations:
 
 ```bash
-md-for-human --review path/to/output
+md-for-human path/to/input -o path/to/output --review
 ```
+
+`--review OUTPUT_DIR` remains available for existing generated sites, but it
+cannot hot reload source changes because the server does not know the source
+root in that mode.
 
 The review server binds to `127.0.0.1`, injects the review UI at request time,
 and leaves generated HTML files unchanged. API routes live under

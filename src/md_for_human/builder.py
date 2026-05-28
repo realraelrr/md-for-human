@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
+import tempfile
 from dataclasses import dataclass
 from html import escape
 from pathlib import Path, PurePosixPath
@@ -101,6 +103,52 @@ def build_site(input_dir: Path, output_dir: Path) -> BuildResult:
         copied_assets=copied_assets,
         manifest_path=manifest_path,
     )
+
+
+def build_site_preserving_review(input_dir: Path, output_dir: Path) -> BuildResult:
+    """Rebuild a site atomically enough for review mode while keeping review artifacts."""
+    output_dir = Path(output_dir)
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    staging_dir = Path(
+        tempfile.mkdtemp(prefix=f".{output_dir.name}.rebuild-", dir=output_dir.parent)
+    )
+    try:
+        staging_result = build_site(Path(input_dir), staging_dir)
+        entry_relative = staging_result.entry_page.relative_to(staging_dir)
+        replace_output_preserving_review(staging_dir, output_dir)
+        return BuildResult(
+            output_dir=output_dir,
+            entry_page=output_dir / entry_relative,
+            warnings=staging_result.warnings,
+            pages=staging_result.pages,
+            copied_assets=staging_result.copied_assets,
+            manifest_path=output_dir / ".md-for-human" / "manifest.json",
+        )
+    except Exception:
+        shutil.rmtree(staging_dir, ignore_errors=True)
+        raise
+
+
+def replace_output_preserving_review(staging_dir: Path, output_dir: Path) -> None:
+    review_dir = output_dir / ".md-for-human" / "review"
+    review_backup_root: Path | None = None
+    if review_dir.exists():
+        review_backup_root = Path(
+            tempfile.mkdtemp(prefix=".mdfh-review-preserve-", dir=output_dir.parent)
+        )
+        shutil.copytree(review_dir, review_backup_root / "review")
+
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+    shutil.move(str(staging_dir), str(output_dir))
+
+    if review_backup_root is not None:
+        restored_review_dir = output_dir / ".md-for-human" / "review"
+        if restored_review_dir.exists():
+            shutil.rmtree(restored_review_dir)
+        restored_review_dir.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(review_backup_root / "review", restored_review_dir)
+        shutil.rmtree(review_backup_root, ignore_errors=True)
 
 
 def build_synthetic_landing_page(
