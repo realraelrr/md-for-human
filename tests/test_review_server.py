@@ -238,7 +238,8 @@ def test_review_server_injects_client_without_modifying_html(
     served = app.render_site_file("guide/setup.html")
 
     assert REVIEW_API_PREFIX in served
-    assert "data-mdfh-review-panel" in served
+    assert "data-mdfh-review-unplaced" in served
+    assert "data-mdfh-review-open" in served
     assert html_path.read_text(encoding="utf-8") == original_html
 
 
@@ -286,7 +287,7 @@ def test_review_server_http_api_requires_token_and_does_not_enable_cors(
         thread.join(timeout=2)
 
 
-def test_review_server_injected_ui_uses_comment_rail_without_action_form(
+def test_review_server_injected_ui_uses_inline_comments_without_fixed_rail(
     sample_site_copy: Path,
     tmp_path: Path,
 ):
@@ -296,16 +297,22 @@ def test_review_server_injected_ui_uses_comment_rail_without_action_form(
 
     served = app.render_site_file("guide/setup.html")
 
-    assert "data-mdfh-review-rail" in served
-    assert "data-mdfh-review-connector-layer" in served
+    assert "data-mdfh-review-unplaced" in served
+    assert "mdfh-review-row" in served
+    assert "mdfh-review-comments" in served
     assert "data-mdfh-review-comment-input" in served
     assert "mdfh-review-underline" in served
-    assert "positionCommentCards" in served
-    assert "updateConnectors" in served
+    assert "pageAnnotations" in served
+    assert "renderInlineComments" in served
     assert "findQuoteRanges" in served
     assert "/state" in served
     assert "locateQuote" in served
     assert "scrollIntoView" in served
+    assert "data-mdfh-review-rail" not in served
+    assert "data-mdfh-review-connector-layer" not in served
+    assert "positionCommentCards" not in served
+    assert "updateConnectors" not in served
+    assert 'window.addEventListener("scroll"' not in served
     assert "suggest_insert" not in served
     assert "Selected annotation" not in served
     assert "Reviewer name" not in served
