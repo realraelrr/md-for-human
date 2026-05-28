@@ -164,3 +164,91 @@ def test_build_site_warns_for_referenced_asset_directory(tmp_path: Path):
         for warning in result.warnings
     )
     assert not (output_dir / "asset-dir").exists()
+
+
+def test_build_site_copies_assets_referenced_from_raw_html(tmp_path: Path):
+    input_dir = tmp_path / "docs"
+    image_dir = input_dir / "images"
+    style_dir = input_dir / "styles"
+    script_dir = input_dir / "scripts"
+    image_dir.mkdir(parents=True)
+    style_dir.mkdir()
+    script_dir.mkdir()
+    (image_dir / "raw diagram.png").write_bytes(b"png")
+    (style_dir / "site.css").write_text("body { color: black; }\n", encoding="utf-8")
+    (script_dir / "app.js").write_text("console.log('ok');\n", encoding="utf-8")
+    (input_dir / "page.md").write_text(
+        "\n".join(
+            [
+                "# Page",
+                "",
+                '<img src="images/raw%20diagram.png" alt="Raw">',
+                '<link rel="stylesheet" href="styles/site.css">',
+                '<script src="scripts/app.js"></script>',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "output"
+
+    result = build_site(input_dir, output_dir)
+
+    assert sorted(result.copied_assets) == [
+        "images/raw diagram.png",
+        "scripts/app.js",
+        "styles/site.css",
+    ]
+    assert (output_dir / "images" / "raw diagram.png").exists()
+    assert (output_dir / "styles" / "site.css").exists()
+    assert (output_dir / "scripts" / "app.js").exists()
+
+
+def test_build_site_does_not_treat_raw_html_page_links_as_assets(tmp_path: Path):
+    input_dir = tmp_path / "docs"
+    input_dir.mkdir()
+    (input_dir / "index.md").write_text(
+        '# Index\n\n<a href="guide.html">Guide</a>\n',
+        encoding="utf-8",
+    )
+    (input_dir / "guide.md").write_text("# Guide\n", encoding="utf-8")
+    output_dir = tmp_path / "output"
+
+    result = build_site(input_dir, output_dir)
+
+    assert result.warnings == []
+    assert result.copied_assets == []
+    assert (output_dir / "guide.html").exists()
+
+
+def test_build_site_does_not_treat_synthetic_index_link_as_asset(tmp_path: Path):
+    input_dir = tmp_path / "docs"
+    input_dir.mkdir()
+    (input_dir / "guide.md").write_text(
+        '# Guide\n\n<a href="index.html">Home</a>\n',
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "output"
+
+    result = build_site(input_dir, output_dir)
+
+    assert result.warnings == []
+    assert result.copied_assets == []
+    assert result.entry_page == output_dir / "index.html"
+
+
+def test_build_site_does_not_treat_raw_html_directory_page_links_as_assets(tmp_path: Path):
+    input_dir = tmp_path / "docs"
+    guide_dir = input_dir / "guide"
+    guide_dir.mkdir(parents=True)
+    (input_dir / "index.md").write_text(
+        '# Index\n\n<a href="guide/">Guide</a>\n',
+        encoding="utf-8",
+    )
+    (guide_dir / "index.md").write_text("# Guide\n", encoding="utf-8")
+    output_dir = tmp_path / "output"
+
+    result = build_site(input_dir, output_dir)
+
+    assert result.warnings == []
+    assert result.copied_assets == []
+    assert (output_dir / "guide" / "index.html").exists()

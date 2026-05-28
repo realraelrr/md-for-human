@@ -11,8 +11,8 @@ and verify.
 `md-for-human` keeps Markdown as the editable source and produces HTML as the
 readable artifact. It supports folder and single-file inputs, sidebar navigation,
 page tables of contents, previous/next links, local Markdown link rewriting,
-referenced asset copying, code highlighting, verification, and a manifest for
-agent handoff.
+referenced asset copying from Markdown and raw HTML, code highlighting, verification,
+and a manifest for agent handoff.
 
 It does not rewrite, summarize, or embellish the Markdown.
 
@@ -60,7 +60,8 @@ md-for-human tests/fixtures/sample_site -o /tmp/md-for-human-sample-site --overw
 ```
 
 Use `--no-open` for headless runs, `--verify` for structural checks, and
-`--fail-on-warning` for strict automation.
+`--fail-on-warning` for strict automation. Use `--strict` for agent handoff; it
+combines `--verify --fail-on-warning --no-open`.
 
 ## Output Contract
 
@@ -106,7 +107,7 @@ Canonical checks:
 ruff check .
 mypy --strict src
 python -m pytest -q
-python -m md_for_human tests/fixtures/sample_site -o /tmp/md-for-human-sample-site --overwrite --verify --no-open
+python -m md_for_human tests/fixtures/sample_site -o /tmp/md-for-human-sample-site --overwrite --strict
 md-for-human --help
 ```
 
@@ -118,8 +119,9 @@ bootstrap shim so `python -m md_for_human` works from a checkout before install.
 The CLI rejects output paths that are the input path, inside the input tree, or
 an ancestor of the input. Custom output paths require `--overwrite`.
 
-Only referenced local assets are copied. Missing, symlinked, out-of-root, and
-non-file assets produce warnings.
+Only referenced local assets are copied. Markdown links/images and raw HTML
+`href`/`src` targets are included. Missing, symlinked, out-of-root, and non-file
+assets produce warnings.
 
 ## License
 

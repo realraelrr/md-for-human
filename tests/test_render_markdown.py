@@ -27,6 +27,49 @@ def test_render_document_extracts_title_generates_toc_heading_ids_and_highlights
     assert 'class="highlight"' in page.content_html
 
 
+def test_render_document_keeps_multilingual_heading_ids_readable(tmp_path: Path):
+    input_dir = tmp_path / "docs"
+    input_dir.mkdir()
+    (input_dir / "page.md").write_text(
+        "\n".join(
+            [
+                "# Español Café",
+                "",
+                "## Français déjà vu",
+                "",
+                "## Deutsch Größe",
+                "",
+                "## 中文 标题",
+                "",
+                "## 日本語 見出し",
+                "",
+                "## 한국어 제목",
+                "",
+                "## हिन्दी शीर्षक",
+                "",
+                "## ภาษาไทย หัวข้อ",
+                "",
+                "## 中文 标题",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    manifest = discover_site(input_dir, tmp_path / "output")
+    page = render_document(manifest.documents[0], manifest)
+
+    assert 'id="español-café"' in page.content_html
+    assert 'id="français-déjà-vu"' in page.content_html
+    assert 'id="deutsch-grösse"' in page.content_html
+    assert 'id="中文-标题"' in page.content_html
+    assert 'id="日本語-見出し"' in page.content_html
+    assert 'id="한국어-제목"' in page.content_html
+    assert 'id="हिन्दी-शीर्षक"' in page.content_html
+    assert 'id="ภาษาไทย-หัวข้อ"' in page.content_html
+    assert 'id="中文-标题-2"' in page.content_html
+    assert 'href="#中文-标题"' in page.toc_html
+
+
 def test_render_document_rewrites_in_tree_markdown_links_and_preserves_fragments(
     sample_site_copy: Path,
     tmp_path: Path,

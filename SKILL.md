@@ -32,8 +32,8 @@ python -m md_for_human path/to/input -o "${TMPDIR:-/tmp}/md-for-human-preview" -
 ```
 
 Use `--no-open` only for headless work, CI, artifact-only handoff, or browser-open
-failures. Add `--verify` when structural checks matter; add `--fail-on-warning` only
-for strict automation.
+failures. Add `--verify` when structural checks matter. Prefer `--strict` for
+agent handoff because it combines `--verify --fail-on-warning --no-open`.
 
 ## Setup
 
@@ -61,7 +61,7 @@ Before claiming completion:
 - reported entry page exists and starts with `<!DOCTYPE html>`
 - entry page contains site navigation
 - `.md-for-human/manifest.json` exists in the output directory
-- `--verify` passed if you used it
+- `--verify` passed if you used it, or `--strict` passed for agent handoff
 
 Use the reported entry page or manifest `entry_page`; directory builds usually use
 `index.html`, while single-file builds use the source file basename.
@@ -98,7 +98,7 @@ Run:
 
 ```bash
 python -m pytest -q
-python -m md_for_human tests/fixtures/sample_site -o /tmp/md-for-human-sample-site --overwrite --verify --no-open
+python -m md_for_human tests/fixtures/sample_site -o /tmp/md-for-human-sample-site --overwrite --strict
 md-for-human --help
 ```
 
@@ -108,3 +108,4 @@ md-for-human --help
 - Prefer `${TMPDIR:-/tmp}/...` for previews; macOS sandboxes may block plain `/tmp`.
 - Use `--overwrite` only for output directories created for this conversion.
 - The tool copies referenced local assets only; unreferenced files are not copied.
+  Markdown links/images and raw HTML `href`/`src` targets are included.

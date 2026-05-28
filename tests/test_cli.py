@@ -24,6 +24,7 @@ def test_python_m_md_for_human_help_displays_expected_options():
     assert "--overwrite" in result.stdout
     assert "--verify" in result.stdout
     assert "--fail-on-warning" in result.stdout
+    assert "--strict" in result.stdout
 
 
 def test_main_builds_site_without_opening_browser_when_no_open(
@@ -401,4 +402,28 @@ def test_main_fail_on_warning_returns_error_after_reporting_warnings(tmp_path: P
     assert "Browser opened: no" in stdout.getvalue()
     assert "Warnings: 1" in stdout.getvalue()
     assert "Missing referenced asset: missing.png" in stderr.getvalue()
+    assert "Failing because warnings were emitted." in stderr.getvalue()
+
+
+def test_main_strict_combines_verify_fail_on_warning_and_no_open(tmp_path: Path):
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    opener_calls: list[str] = []
+    input_dir = tmp_path / "docs"
+    input_dir.mkdir()
+    (input_dir / "page.md").write_text("# Page\n\n![Missing](missing.png)\n", encoding="utf-8")
+
+    result = main(
+        [str(input_dir), "--output", str(tmp_path / "output"), "--strict"],
+        opener=opener_calls.append,
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    assert result == 1
+    assert opener_calls == []
+    assert "Browser opened: no" in stdout.getvalue()
+    assert "Verification: failed" in stdout.getvalue()
+    assert "Missing referenced asset: missing.png" in stderr.getvalue()
+    assert "Local target missing from page.html: missing.png" in stderr.getvalue()
     assert "Failing because warnings were emitted." in stderr.getvalue()

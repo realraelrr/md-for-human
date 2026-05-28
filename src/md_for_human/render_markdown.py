@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import html
 import posixpath
-import re
+import unicodedata
 from pathlib import PurePosixPath
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -14,6 +14,7 @@ from pygments.formatters import HtmlFormatter
 from pygments.lexers import TextLexer, get_lexer_by_name
 from pygments.util import ClassNotFound
 
+from md_for_human.html_targets import extract_local_targets
 from md_for_human.models import Document, RenderedPage, SiteManifest
 from md_for_human.urls import decode_url_path, relative_output_link
 
@@ -27,6 +28,8 @@ def render_document(document: Document, manifest: SiteManifest) -> RenderedPage:
     document_lookup = {
         item.relative_source_path.as_posix().lower(): item for item in manifest.documents
     }
+    document_output_lookup = {item.output_path.as_posix().lower() for item in manifest.documents}
+    document_output_lookup.add(manifest.entry_output_path.as_posix().lower())
     warnings: list[str] = []
     referenced_assets: set[PurePosixPath] = set()
     headings: list[tuple[int, str, str]] = []
@@ -40,6 +43,17 @@ def render_document(document: Document, manifest: SiteManifest) -> RenderedPage:
             token.attrSet("id", heading_id)
             level = int(token.tag[1:])
             headings.append((level, heading_text, heading_id))
+            continue
+
+        if token.type == "html_block":
+            _collect_raw_html_targets(
+                token.content,
+                document,
+                document_lookup,
+                document_output_lookup,
+                referenced_assets,
+                warnings,
+            )
             continue
 
         if token.type != "inline" or not token.children:
@@ -59,6 +73,15 @@ def render_document(document: Document, manifest: SiteManifest) -> RenderedPage:
                             warnings=warnings,
                         ),
                     )
+            elif child.type == "html_inline":
+                _collect_raw_html_targets(
+                    child.content,
+                    document,
+                    document_lookup,
+                    document_output_lookup,
+                    referenced_assets,
+                    warnings,
+                )
             elif child.type == "image":
                 src = child.attrGet("src")
                 if isinstance(src, str) and src:
@@ -127,12 +150,68 @@ def _extract_heading_text(token: Token | None) -> str:
 
 
 def _build_heading_id(text: str, slug_counts: dict[str, int]) -> str:
-    base = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-") or "section"
+    base = _slugify_heading(text) or "section"
     count = slug_counts.get(base, 0)
     slug_counts[base] = count + 1
     if count == 0:
         return base
     return f"{base}-{count + 1}"
+
+
+def _slugify_heading(text: str) -> str:
+    normalized = unicodedata.normalize("NFKC", text.casefold())
+    parts: list[str] = []
+    last_was_separator = False
+    for character in normalized:
+        if character.isalnum():
+            parts.append(character)
+            last_was_separator = False
+            continue
+        if unicodedata.category(character).startswith("M") and parts and not last_was_separator:
+            parts.append(character)
+            continue
+        if parts and not last_was_separator:
+            parts.append("-")
+            last_was_separator = True
+    return "".join(parts).strip("-")
+
+
+def _collect_raw_html_targets(
+    content: str,
+    document: Document,
+    document_lookup: dict[str, Document],
+    document_output_lookup: set[str],
+    referenced_assets: set[PurePosixPath],
+    warnings: list[str],
+) -> None:
+    for target in extract_local_targets(content):
+        if _target_points_to_generated_page(target, document, document_output_lookup):
+            continue
+        _rewrite_local_target(
+            raw_url=target,
+            document=document,
+            document_lookup=document_lookup,
+            referenced_assets=referenced_assets,
+            warnings=warnings,
+        )
+
+
+def _target_points_to_generated_page(
+    raw_url: str,
+    document: Document,
+    document_output_lookup: set[str],
+) -> bool:
+    parsed = urlsplit(raw_url)
+    if parsed.scheme or parsed.netloc or not parsed.path or parsed.path.startswith("/"):
+        return False
+    decoded_path = decode_url_path(parsed.path)
+    output_path = _resolve_relative_path(document.output_path.parent, decoded_path)
+    if _points_outside_tree(output_path):
+        return False
+    output_label = output_path.as_posix().lower()
+    if output_label in document_output_lookup:
+        return True
+    return (output_path / "index.html").as_posix().lower() in document_output_lookup
 
 
 def _rewrite_local_target(

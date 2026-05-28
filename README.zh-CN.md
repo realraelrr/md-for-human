@@ -4,7 +4,7 @@
 
 [English README](README.md)
 
-`md-for-human` 保留 Markdown 作为可编辑源文件，把 HTML 作为阅读产物。它支持目录和单文件输入、侧边栏导航、页面目录、上一页/下一页、本地 Markdown 链接重写、引用资产复制、代码高亮、结构校验，以及用于 agent 交付的 manifest。
+`md-for-human` 保留 Markdown 作为可编辑源文件，把 HTML 作为阅读产物。它支持目录和单文件输入、侧边栏导航、页面目录、上一页/下一页、本地 Markdown 链接重写、Markdown 与 raw HTML 引用资产复制、代码高亮、结构校验，以及用于 agent 交付的 manifest。
 
 它不会改写、总结或润色 Markdown。
 
@@ -51,7 +51,7 @@ conda run -n md-for-human md-for-human path/to/agent-output
 md-for-human tests/fixtures/sample_site -o /tmp/md-for-human-sample-site --overwrite --verify --no-open
 ```
 
-`--no-open` 用于 headless 场景，`--verify` 用于结构校验，`--fail-on-warning` 用于严格自动化。
+`--no-open` 用于 headless 场景，`--verify` 用于结构校验，`--fail-on-warning` 用于严格自动化。agent 交付建议使用 `--strict`，它等价于组合 `--verify --fail-on-warning --no-open`。
 
 ## 输出契约
 
@@ -93,7 +93,7 @@ Agent 执行协议在 [`SKILL.md`](SKILL.md)。`.codex/skills/md-for-human/` 和
 ruff check .
 mypy --strict src
 python -m pytest -q
-python -m md_for_human tests/fixtures/sample_site -o /tmp/md-for-human-sample-site --overwrite --verify --no-open
+python -m md_for_human tests/fixtures/sample_site -o /tmp/md-for-human-sample-site --overwrite --strict
 md-for-human --help
 ```
 
@@ -103,7 +103,7 @@ md-for-human --help
 
 CLI 会拒绝把输出路径设为输入路径、输入树内部或输入路径祖先。自定义输出路径需要 `--overwrite`。
 
-只复制被引用的本地资产。缺失、symlink、越过输入根目录或非文件资产会产生 warning。
+只复制被引用的本地资产，包括 Markdown 链接/图片和 raw HTML `href`/`src` 目标。缺失、symlink、越过输入根目录或非文件资产会产生 warning。
 
 ## License
 

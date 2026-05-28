@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-from html.parser import HTMLParser
 import os
 import shutil
 import sys
@@ -11,6 +10,7 @@ from typing import Callable, Sequence, TextIO
 
 from md_for_human.builder import BuildResult, build_site
 from md_for_human.discovery import DiscoveryError
+from md_for_human.html_targets import extract_local_targets
 from md_for_human.urls import decode_url_path
 
 
@@ -51,6 +51,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Return a non-zero status if the build emits warnings",
     )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Run strict agent handoff checks: --verify --fail-on-warning --no-open",
+    )
     return parser
 
 
@@ -76,12 +81,16 @@ def main(
         return 1
 
     verification_errors: list[str] = []
-    if args.verify:
+    should_verify = args.verify or args.strict
+    fail_on_warning = args.fail_on_warning or args.strict
+    no_open = args.no_open or args.strict
+
+    if should_verify:
         verification_errors = verify_build_result(result)
 
-    should_fail_on_warning = args.fail_on_warning and bool(result.warnings)
+    should_fail_on_warning = fail_on_warning and bool(result.warnings)
     browser_opened = False
-    if not args.no_open and not should_fail_on_warning and not verification_errors:
+    if not no_open and not should_fail_on_warning and not verification_errors:
         open_result = opener(result.entry_page.resolve().as_uri())
         browser_opened = open_result is not False
 
@@ -89,7 +98,7 @@ def main(
     for warning in result.warnings:
         print(f"Warning: {warning}", file=stderr)
 
-    if args.verify:
+    if should_verify:
         if verification_errors:
             print("Verification: failed", file=stdout)
             for error in verification_errors:
@@ -221,23 +230,3 @@ def verify_build_result(result: BuildResult) -> list[str]:
         errors.append(".md-for-human/manifest.json is missing")
 
     return errors
-
-
-class LocalTargetParser(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__()
-        self.targets: list[str] = []
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        for name, value in attrs:
-            if name not in {"href", "src"} or not value:
-                continue
-            if value.startswith(("http://", "https://", "mailto:", "tel:", "data:")):
-                continue
-            self.targets.append(value.split("?", 1)[0].split("#", 1)[0] or value)
-
-
-def extract_local_targets(html: str) -> list[str]:
-    parser = LocalTargetParser()
-    parser.feed(html)
-    return parser.targets
