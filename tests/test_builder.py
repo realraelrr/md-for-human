@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import hashlib
-from pathlib import Path
 import json
+from pathlib import Path
 
 import pytest
 
-from md_for_human.builder import build_site
+from md_for_human.builder import build_site, build_site_preserving_review
 from md_for_human.discovery import DiscoveryError
 
 
@@ -96,6 +96,39 @@ def test_build_site_accepts_single_file_input_and_generates_one_html_page(tmp_pa
     assert result.entry_page.exists()
     assert result.pages == ["notes.html"]
     assert list(output_dir.rglob("*.html")) == [output_dir / "notes.html"]
+
+
+def test_build_site_preserving_review_removes_stale_pages_and_keeps_artifact(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    output_dir = tmp_path / "output"
+    build_site(sample_site_copy, output_dir)
+    review_dir = output_dir / ".md-for-human" / "review"
+    review_dir.mkdir(parents=True)
+    artifact_path = review_dir / "annotations.json"
+    artifact_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "mdfh-review-v2",
+                "source_manifest": ".md-for-human/manifest.json",
+                "annotations": [],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    (sample_site_copy / "misc" / "no-title.md").unlink()
+    result = build_site_preserving_review(sample_site_copy, output_dir)
+    manifest = json.loads((output_dir / ".md-for-human" / "manifest.json").read_text())
+
+    assert "misc/no-title.html" not in result.pages
+    assert not (output_dir / "misc" / "no-title.html").exists()
+    assert artifact_path.exists()
+    assert json.loads(artifact_path.read_text(encoding="utf-8"))["annotations"] == []
+    assert "misc/no-title.html" not in manifest["pages"]
 
 
 def test_build_site_writes_manifest_for_agent_audit(sample_site_copy: Path, tmp_path: Path):

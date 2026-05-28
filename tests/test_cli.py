@@ -556,6 +556,51 @@ def test_main_review_serves_existing_output_without_rebuilding(
     assert html_path.read_text(encoding="utf-8") == original_html
 
 
+def test_main_build_integrated_review_builds_then_serves_with_source_watch(
+    sample_site_copy: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    output_dir = tmp_path / "output"
+    built: list[tuple[Path, Path]] = []
+    served: list[tuple[Path, Path | None]] = []
+
+    def fake_build_site_preserving_review(input_path: Path, output_path: Path) -> object:
+        built.append((input_path, output_path))
+        (output_path / ".md-for-human").mkdir(parents=True)
+        (output_path / ".md-for-human" / "manifest.json").write_text(
+            '{"entry_page":"index.html","pages":["index.html"],"documents":[],"copied_assets":[],"warnings":[]}\n',
+            encoding="utf-8",
+        )
+        return object()
+
+    def fake_serve_review(
+        path: Path,
+        *_args: object,
+        source_input: Path | None = None,
+        **_kwargs: object,
+    ) -> int:
+        served.append((path, source_input))
+        return 0
+
+    monkeypatch.setattr(
+        "md_for_human.cli.build_site_preserving_review",
+        fake_build_site_preserving_review,
+    )
+    monkeypatch.setattr("md_for_human.cli.serve_review", fake_serve_review)
+
+    result = main(
+        [str(sample_site_copy), "--output", str(output_dir), "--review"],
+        opener=lambda *_: None,
+        stdout=io.StringIO(),
+        stderr=io.StringIO(),
+    )
+
+    assert result == 0
+    assert built == [(sample_site_copy.resolve(), output_dir)]
+    assert served == [(output_dir.resolve(), sample_site_copy.resolve())]
+
+
 def test_main_review_rejects_output_without_manifest(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
