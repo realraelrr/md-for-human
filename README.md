@@ -121,13 +121,15 @@ For single-file inputs, `entry_page` uses the source file basename instead of
 
 Review annotations are optional sidecar artifacts under `.md-for-human/review/`.
 They do not modify source Markdown or generated HTML. `annotations.json` is the
-machine-readable source of truth, and `review.md` is a generated summary for
-humans and agents.
+machine-readable locator layer, and `review.md` is the generated summary agents
+should read first.
 
-The v1 protocol supports `comment`, `suggest_delete`, `suggest_insert`, and
-`suggest_replace`. Every annotation records a page, source path, quote anchor,
-note, and timestamps. For `suggest_insert`, the quote is only the insertion
-anchor; it is not text to edit or remove.
+The v2 protocol is intentionally small: each annotation records a location and a
+free-text comment. The location is either a quote anchor in a reviewable page or
+`scope: "document"` for a whole-page comment. Deletions, insertions,
+replacements, and rationale all belong in the natural-language `comment`.
+Legacy v1 artifacts remain validatable for read-only compatibility, but new
+browser and agent workflows write `mdfh-review-v2`.
 
 Validate review artifacts with:
 
@@ -148,9 +150,10 @@ The review server binds to `127.0.0.1`, injects the review UI at request time,
 and leaves generated HTML files unchanged. API routes live under
 `/__mdfh_review/`, require a per-session token, do not enable CORS, and only
 write `.md-for-human/review/annotations.json` plus the derived `review.md`.
-The UI sends full artifact drafts, but the server rejects schema, page, and
-source-path hard failures before writing. Missing or repeated quote anchors are
-saved as warnings so the artifact remains available for agent handoff.
+The UI uses one marker, an underline/highlight anchor, plus a right comment rail.
+The server rejects schema, page, and source-path hard failures before writing.
+Missing or repeated quote anchors are saved as warnings so the communication
+artifact remains available for agent handoff.
 
 ## Agent Skill
 

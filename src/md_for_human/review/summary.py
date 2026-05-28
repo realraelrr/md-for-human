@@ -4,6 +4,7 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
+from md_for_human.review import SCHEMA_VERSION_V2
 from md_for_human.review.artifacts import annotations_path, summary_path, write_text_atomic
 
 HEADER = "<!-- Generated from .md-for-human/review/annotations.json. Do not edit manually. -->"
@@ -16,6 +17,48 @@ def write_review_summary(output_dir: Path, artifact: dict[str, Any]) -> Path:
 
 
 def render_review_summary(artifact: dict[str, Any]) -> str:
+    if artifact.get("schema_version") == SCHEMA_VERSION_V2:
+        return render_review_summary_v2(artifact)
+    return render_review_summary_v1(artifact)
+
+
+def render_review_summary_v2(artifact: dict[str, Any]) -> str:
+    annotations = artifact.get("annotations")
+    if not isinstance(annotations, list):
+        annotations = []
+
+    grouped: OrderedDict[str, list[dict[str, Any]]] = OrderedDict()
+    for annotation in annotations:
+        if not isinstance(annotation, dict):
+            continue
+        label = string_value(annotation.get("source_path")) or string_value(
+            annotation.get("page"), fallback="unknown"
+        )
+        grouped.setdefault(label, []).append(annotation)
+
+    lines = [
+        HEADER,
+        "",
+        "# Review Summary",
+        "",
+        f"- Schema: {string_value(artifact.get('schema_version'))}",
+        f"- Annotation count: {len(annotations)}",
+        f"- Pages touched: {len({string_value(item.get('page')) for item in annotations if isinstance(item, dict)})}",
+        "",
+    ]
+
+    for label, page_annotations in grouped.items():
+        lines.extend([f"## {label}", ""])
+        page = first_page(page_annotations)
+        if page and page != label:
+            lines.extend([f"Page: `{page}`", ""])
+        for annotation in page_annotations:
+            lines.extend(render_annotation_v2(annotation))
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def render_review_summary_v1(artifact: dict[str, Any]) -> str:
     annotations = artifact.get("annotations")
     if not isinstance(annotations, list):
         annotations = []
@@ -52,12 +95,26 @@ def render_review_summary(artifact: dict[str, Any]) -> str:
         if source_path:
             lines.extend([f"Source: `{source_path}`", ""])
         for annotation in page_annotations:
-            lines.extend(render_annotation(annotation))
+            lines.extend(render_annotation_v1(annotation))
 
     return "\n".join(lines).rstrip() + "\n"
 
 
-def render_annotation(annotation: dict[str, Any]) -> list[str]:
+def render_annotation_v2(annotation: dict[str, Any]) -> list[str]:
+    annotation_id = string_value(annotation.get("id"), fallback="unknown")
+    quote = string_value(annotation.get("quote"))
+    lines = [f"### {annotation_id}", ""]
+
+    if quote:
+        lines.extend([blockquote(quote), ""])
+    elif annotation.get("scope") == "document":
+        lines.extend(["Scope: document", ""])
+
+    lines.extend([string_value(annotation.get("comment")), ""])
+    return lines
+
+
+def render_annotation_v1(annotation: dict[str, Any]) -> list[str]:
     annotation_id = string_value(annotation.get("id"), fallback="unknown")
     annotation_type = string_value(annotation.get("type"), fallback="unknown")
     lines = [
@@ -98,6 +155,14 @@ def first_source_path(annotations: list[dict[str, Any]]) -> str:
         source_path = string_value(annotation.get("source_path"))
         if source_path:
             return source_path
+    return ""
+
+
+def first_page(annotations: list[dict[str, Any]]) -> str:
+    for annotation in annotations:
+        page = string_value(annotation.get("page"))
+        if page:
+            return page
     return ""
 
 
