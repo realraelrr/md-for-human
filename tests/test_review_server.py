@@ -304,6 +304,8 @@ def test_review_server_injected_ui_uses_inline_comments_without_fixed_rail(
     assert "mdfh-review-underline" in served
     assert "pageAnnotations" in served
     assert "renderInlineComments" in served
+    assert "hasActiveEditor" in served
+    assert "if (!preserveEditor) {" in served
     assert "findQuoteRanges" in served
     assert "/state" in served
     assert "locateQuote" in served

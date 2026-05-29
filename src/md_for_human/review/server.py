@@ -1284,6 +1284,10 @@ REVIEW_CLIENT_JS = r"""
       .catch((error) => toast(error.message));
   }, 1500);
 
+  function hasActiveEditor() {
+    return Boolean(content.querySelector("[data-mdfh-review-editor]"));
+  }
+
   function handleStatePayload(payload, { initial }) {
     const incomingVersion = payload.build ? payload.build.version : 0;
     if (state.buildVersion === null) {
@@ -1300,11 +1304,19 @@ REVIEW_CLIENT_JS = r"""
       }
       return;
     }
+    const preserveEditor = !initial && hasActiveEditor();
     state.artifact = ensureV2Artifact(payload.artifact);
-    renderAnnotations();
+    if (!preserveEditor) {
+      renderAnnotations();
+    }
     if (payload.build && payload.build.error) {
       toast(payload.build.error);
-    } else if (payload.validation && payload.validation.errors && payload.validation.errors.length) {
+    } else if (
+      !preserveEditor &&
+      payload.validation &&
+      payload.validation.errors &&
+      payload.validation.errors.length
+    ) {
       toast("", payload.validation);
     }
   }
