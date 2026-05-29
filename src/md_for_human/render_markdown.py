@@ -14,7 +14,7 @@ from pygments.formatters import HtmlFormatter
 from pygments.lexers import TextLexer, get_lexer_by_name
 from pygments.util import ClassNotFound
 
-from md_for_human.html_targets import extract_local_targets
+from md_for_human.html_targets import rewrite_local_targets
 from md_for_human.models import Document, RenderedPage, SiteManifest
 from md_for_human.urls import decode_url_path, relative_output_link
 
@@ -47,7 +47,7 @@ def render_document(document: Document, manifest: SiteManifest) -> RenderedPage:
             continue
 
         if token.type == "html_block":
-            _collect_raw_html_targets(
+            token.content = _rewrite_raw_html_targets(
                 token.content,
                 document,
                 document_lookup,
@@ -75,7 +75,7 @@ def render_document(document: Document, manifest: SiteManifest) -> RenderedPage:
                         ),
                     )
             elif child.type == "html_inline":
-                _collect_raw_html_targets(
+                child.content = _rewrite_raw_html_targets(
                     child.content,
                     document,
                     document_lookup,
@@ -198,24 +198,26 @@ def _slugify_heading(text: str) -> str:
     return "".join(parts).strip("-")
 
 
-def _collect_raw_html_targets(
+def _rewrite_raw_html_targets(
     content: str,
     document: Document,
     document_lookup: dict[str, Document],
     document_output_lookup: set[str],
     referenced_assets: set[PurePosixPath],
     warnings: list[str],
-) -> None:
-    for target in extract_local_targets(content):
+) -> str:
+    def rewrite_target(target: str) -> str:
         if _target_points_to_generated_page(target, document, document_output_lookup):
-            continue
-        _rewrite_local_target(
+            return target
+        return _rewrite_local_target(
             raw_url=target,
             document=document,
             document_lookup=document_lookup,
             referenced_assets=referenced_assets,
             warnings=warnings,
         )
+
+    return rewrite_local_targets(content, rewrite_target)
 
 
 def _target_points_to_generated_page(

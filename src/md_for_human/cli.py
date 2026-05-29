@@ -7,6 +7,7 @@ import sys
 import webbrowser
 from pathlib import Path
 from typing import Callable, Sequence, TextIO
+from urllib.parse import urlsplit
 
 from md_for_human.builder import BuildResult, build_site, build_site_preserving_review
 from md_for_human.discovery import DiscoveryError
@@ -229,7 +230,7 @@ def prepare_output_dir(
 def validate_output_location(input_path: Path, output_dir: Path) -> None:
     try:
         comparison_output_dir = normalize_for_containment_check(output_dir)
-    except RuntimeError as exc:
+    except (RuntimeError, OSError) as exc:
         raise CliError(f"Could not resolve output directory: {output_dir}") from exc
     if input_path.is_dir():
         if comparison_output_dir == input_path:
@@ -245,6 +246,8 @@ def validate_output_location(input_path: Path, output_dir: Path) -> None:
 
 
 def normalize_for_containment_check(path: Path) -> Path:
+    if path.parent.is_symlink():
+        path.parent.resolve(strict=True)
     return path.parent.resolve(strict=False) / path.name
 
 
@@ -360,8 +363,10 @@ def verify_build_result(result: BuildResult) -> list[str]:
         for target in extract_local_targets(html):
             if target.startswith("#"):
                 continue
-            decoded_target = decode_url_path(target)
-            target_without_fragment = decoded_target.split("#", 1)[0]
+            parsed_target = urlsplit(target)
+            if not parsed_target.path:
+                continue
+            target_without_fragment = decode_url_path(parsed_target.path)
             if target_without_fragment.lower().endswith(".md"):
                 errors.append(f"Markdown link appears unrevised in page: {page}")
             target_path = (page_path.parent / target_without_fragment).resolve()

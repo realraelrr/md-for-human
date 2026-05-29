@@ -152,6 +152,37 @@ def test_render_document_preserves_external_links_warns_for_out_of_tree_paths_an
     assert 'src="images/diagram.png"' in page.content_html
 
 
+def test_render_document_rewrites_raw_html_markdown_links(tmp_path: Path):
+    input_dir = tmp_path / "docs"
+    input_dir.mkdir()
+    (input_dir / "index.md").write_text(
+        "\n".join(
+            [
+                "# Index",
+                "",
+                '<a href="guide.md#install">Guide install</a>',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (input_dir / "guide.md").write_text("# Guide\n\n## Install\n", encoding="utf-8")
+
+    manifest = discover_site(input_dir, tmp_path / "output")
+    page = render_document(
+        next(
+            document
+            for document in manifest.documents
+            if document.relative_source_path.name == "index.md"
+        ),
+        manifest,
+    )
+
+    assert 'href="guide.html#install"' in page.content_html
+    assert 'href="guide.md#install"' not in page.content_html
+    assert page.referenced_assets == set()
+    assert page.warnings == []
+
+
 def test_render_document_warns_for_url_encoded_absolute_local_paths(tmp_path: Path):
     input_dir = tmp_path / "docs"
     input_dir.mkdir()

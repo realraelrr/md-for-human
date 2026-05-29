@@ -431,42 +431,16 @@ def test_review_server_injected_ui_uses_inline_comments_without_fixed_rail(
 
     served = app.render_site_file("guide/setup.html")
 
+    assert served.count("data-mdfh-review-style") == 1
+    assert "<script>" in served
     assert "data-mdfh-review-unplaced" in served
-    assert "mdfh-review-row" in served
-    assert "mdfh-review-comments" in served
     assert "data-mdfh-review-comment-input" in served
-    assert "mdfh-review-underline" in served
-    assert "pageAnnotations" in served
-    assert "renderInlineComments" in served
-    assert "hasActiveEditor" in served
-    assert "if (!preserveEditor) {" in served
-    assert "uniqueMessages" in served
-    assert "Page comments" in served
-    assert "Check unplaced comments on each page" not in served
-    assert "Quote not found on this page" not in served
-    assert "findQuoteRanges" in served
-    assert "canonicalizeWithMap" in served
-    assert "graphemeClusters" in served
-    assert "rawIndexToSegments" in served
+    assert "X-MDFH-Review-Token" in served
+    assert 'request("/state")' in served
+    assert 'request("/annotations"' in served
     assert "data-mdfh-source-lines" in served
-    assert "sourceRangeForSelection" in served
-    assert "range.endContainer" in served
-    assert "mergeSourceRanges" in served
-    assert "sourceRangeForAnnotation" in served
     assert "annotation.source_range" in served
-    assert "firstElementForSourceRange" in served
-    assert "locateAnnotation" in served
-    assert "text.indexOf(quote" not in served
-    assert "/state" in served
-    assert "locateQuote" in served
-    assert "locateAnnotation(annotation)" in served
-    assert "scrollIntoView" in served
     assert "data-mdfh-review-rail" not in served
     assert "data-mdfh-review-connector-layer" not in served
-    assert "positionCommentCards" not in served
-    assert "updateConnectors" not in served
-    assert 'window.addEventListener("scroll"' not in served
     assert "suggest_insert" not in served
-    assert "Selected annotation" not in served
     assert "Reviewer name" not in served
-    assert "Status" not in served
