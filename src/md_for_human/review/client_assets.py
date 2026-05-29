@@ -66,7 +66,7 @@ def review_client_markup(token: str, *, nonce: str) -> str:
 
 REVIEW_CLIENT_CSS = load_asset_text("review.css")
 REVIEW_CLIENT_PANEL = """
-<button type="button" class="mdfh-review-open" data-mdfh-review-open>Comment</button>
+<button type="button" class="mdfh-review-open" data-mdfh-review-open data-mdfh-ui="1" data-i18n="reviewComment">Comment</button>
 <div class="mdfh-review-unplaced" data-mdfh-review-unplaced hidden></div>
 <div class="mdfh-review-toast" data-mdfh-review-toast role="status" hidden></div>
 """.strip()

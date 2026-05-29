@@ -45,7 +45,6 @@ def build_site(input_dir: Path, output_dir: Path) -> BuildResult:
             page,
             nav_tree,
             rendered_pages,
-            manifest.entry_output_path,
         )
         write_output_file(manifest.output_dir / page.document.output_path, page.full_html)
         pages.append(page.document.output_path.as_posix())
@@ -81,7 +80,6 @@ def build_site(input_dir: Path, output_dir: Path) -> BuildResult:
             synthetic_page,
             nav_tree,
             rendered_pages,
-            manifest.entry_output_path,
         )
         write_output_file(manifest.output_dir / entry_output_path, synthetic_page.full_html)
         pages.insert(0, entry_output_path.as_posix())

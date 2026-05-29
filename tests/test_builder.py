@@ -34,8 +34,8 @@ def test_build_site_generates_html_and_copies_only_referenced_assets(
     ]
     assert result.copied_assets == ["images/diagram.png"]
     intro_html = (output_dir / "guide" / "intro.html").read_text(encoding="utf-8")
-    assert 'class="article-close"' in intro_html
-    assert 'href="../index.html"' in intro_html
+    assert 'class="article-close"' not in intro_html
+    assert 'aria-label="Close document"' not in intro_html
     assert result.warnings == []
 
 

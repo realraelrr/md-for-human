@@ -499,7 +499,7 @@ def test_review_server_nonce_only_marks_owned_inline_assets(
     served = app.render_site_file("guide/setup.html", nonce="fixed-nonce")
 
     assert '<style data-mdfh-base-style nonce="fixed-nonce">:root' in served
-    assert '<script data-mdfh-base-script nonce="fixed-nonce">document.addEventListener' in served
+    assert '<script data-mdfh-base-script nonce="fixed-nonce">(() => {' in served
     assert '<style data-mdfh-review-style nonce="fixed-nonce">' in served
     assert '<script data-mdfh-review-script nonce="fixed-nonce">' in served
     assert '<script data-mdfh-base-script>window.mdfhSpoofed = true;</script>' in served
@@ -546,7 +546,7 @@ def test_review_server_legacy_output_does_not_nonce_spoofed_markers(
     served = app.render_site_file("guide/setup.html", nonce="fixed-nonce")
 
     assert '<style nonce="fixed-nonce">:root' in served
-    assert '<script nonce="fixed-nonce">document.addEventListener' in served
+    assert '<script nonce="fixed-nonce">(() => {' in served
     assert '<script data-mdfh-base-script>window.mdfhSpoofed = true;</script>' in served
     assert '<style data-mdfh-base-style>.spoofed { color: red; }</style>' in served
 

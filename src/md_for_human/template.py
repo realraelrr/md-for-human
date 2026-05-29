@@ -12,7 +12,6 @@ def render_page_html(
     page: RenderedPage,
     nav_tree: list[NavNode],
     rendered_pages: dict[PurePosixPath, RenderedPage],
-    entry_output_path: PurePosixPath = PurePosixPath("index.html"),
 ) -> str:
     navigation_html = render_navigation(nav_tree, page.document.output_path)
     pager_html = render_page_pager(page, rendered_pages)
@@ -20,7 +19,6 @@ def render_page_html(
     page_meta = html.escape(page.document.relative_source_path.as_posix())
     page_attr = html.escape(page.document.output_path.as_posix(), quote=True)
     source_path_attr = html.escape(page.document.relative_source_path.as_posix(), quote=True)
-    close_href = relative_output_link(page.document.output_path, entry_output_path)
 
     return (
         "<!DOCTYPE html>\n"
@@ -34,16 +32,16 @@ def render_page_html(
         f"<body data-mdfh-page=\"{page_attr}\" data-mdfh-source-path=\"{source_path_attr}\">\n"
         "  <div class=\"layout\" data-layout>\n"
         "    <aside class=\"sidebar\" data-sidebar id=\"site-sidebar\">\n"
-        "      <button type=\"button\" class=\"sidebar-edge-toggle\" data-sidebar-toggle data-sidebar-edge-toggle aria-controls=\"site-sidebar\" aria-expanded=\"true\" aria-label=\"Collapse sidebar\" title=\"Collapse sidebar\">‹</button>\n"
+        "      <button type=\"button\" class=\"sidebar-edge-toggle\" data-sidebar-toggle data-sidebar-edge-toggle aria-controls=\"site-sidebar\" aria-expanded=\"true\" aria-label=\"Collapse sidebar\" title=\"Collapse sidebar\" data-i18n-aria-label=\"collapseSidebar\" data-i18n-title=\"collapseSidebar\">‹</button>\n"
         "      <div class=\"sidebar-header\">\n"
         "        <span class=\"sidebar-badge\" aria-hidden=\"true\">MD</span>\n"
-        "        <h1>Contents</h1>\n"
+        "        <h1 data-i18n=\"contents\">Contents</h1>\n"
         "      </div>\n"
         "      <div class=\"sidebar-scroll\">\n"
         "        <section class=\"sidebar-section\" data-site-nav-section>\n"
         "          <div class=\"sidebar-section-header\">\n"
-        "            <h2>Site navigation</h2>\n"
-        "            <button type=\"button\" class=\"sidebar-action\" data-site-nav-toggle aria-expanded=\"true\">Hide</button>\n"
+        "            <h2 data-i18n=\"siteNavigation\">Site navigation</h2>\n"
+        "            <button type=\"button\" class=\"sidebar-action\" data-site-nav-toggle aria-expanded=\"true\" data-i18n=\"hide\">Hide</button>\n"
         "          </div>\n"
         "          <div class=\"sidebar-section-content\" data-site-nav-content>\n"
         f"{navigation_html}\n"
@@ -55,11 +53,19 @@ def render_page_html(
         "    <main class=\"main\">\n"
         "      <div class=\"main-inner\">\n"
         "        <div class=\"page-toolbar\">\n"
-        "          <button type=\"button\" class=\"page-toolbar-toggle\" data-sidebar-toggle aria-controls=\"site-sidebar\" aria-expanded=\"true\">Menu</button>\n"
+        "          <button type=\"button\" class=\"page-toolbar-toggle\" data-sidebar-toggle aria-controls=\"site-sidebar\" aria-expanded=\"true\" data-i18n=\"menu\">Menu</button>\n"
         f"          <p class=\"page-meta\">{page_meta}</p>\n"
+        "          <div class=\"toolbar-actions\">\n"
+        "            <button type=\"button\" class=\"theme-toggle\" data-theme-toggle aria-label=\"Switch to dark mode\" title=\"Switch to dark mode\">Dark</button>\n"
+        "            <label class=\"visually-hidden\" for=\"mdfh-locale\" data-i18n=\"language\">Language</label>\n"
+        "            <select id=\"mdfh-locale\" class=\"locale-select\" data-locale-select aria-label=\"Language\" data-i18n-aria-label=\"language\">\n"
+        "              <option value=\"en\">English</option>\n"
+        "              <option value=\"zh-CN\">简体中文</option>\n"
+        "              <option value=\"zh-TW\">繁體中文</option>\n"
+        "            </select>\n"
+        "          </div>\n"
         "        </div>\n"
         "        <article class=\"article\" data-doc-card>\n"
-        f"          <a class=\"article-close\" href=\"{html.escape(close_href, quote=True)}\" aria-label=\"Close document\" title=\"Close document\">&times;</a>\n"
         f"          <div class=\"article-content\" data-mdfh-content=\"1\">{page.content_html}</div>\n"
         "        </article>\n"
         f"{pager_html}\n"
@@ -74,22 +80,22 @@ def render_page_html(
 
 def render_navigation(nav_tree: list[NavNode], current_output: PurePosixPath) -> str:
     if not nav_tree:
-        return '<nav aria-label="Site navigation"><ul class="nav-tree"></ul></nav>'
+        return '<nav aria-label="Site navigation" data-i18n-aria-label="siteNavigation"><ul class="nav-tree"></ul></nav>'
 
     items = "".join(render_nav_node(node, current_output) for node in nav_tree)
-    return f'<nav aria-label="Site navigation"><ul class="nav-tree">{items}</ul></nav>'
+    return f'<nav aria-label="Site navigation" data-i18n-aria-label="siteNavigation"><ul class="nav-tree">{items}</ul></nav>'
 
 
 def render_sidebar_toc(toc_html: str) -> str:
     if not toc_html:
         return ""
 
-    toc_nav_html = toc_html.replace("<h2>On this page</h2>", "", 1)
+    toc_nav_html = toc_html.replace('<h2 data-i18n="onThisPage">On this page</h2>', "", 1)
     return (
         '<section class="sidebar-section">'
         '<div class="sidebar-section-header">'
-        "<h2>On this page</h2>"
-        '<button type="button" class="sidebar-action" data-toc-toggle aria-expanded="true">Hide</button>'
+        '<h2 data-i18n="onThisPage">On this page</h2>'
+        '<button type="button" class="sidebar-action" data-toc-toggle aria-expanded="true" data-i18n="hide">Hide</button>'
         "</div>"
         f'<div class="sidebar-section-content" data-toc-content>{toc_nav_html}</div>'
         "</section>"
@@ -135,7 +141,7 @@ def render_page_pager(
         previous_href = relative_output_link(page.document.output_path, page.previous_document.output_path)
         links.append(
             f'<a href="{html.escape(previous_href, quote=True)}">'
-            f"<strong>Previous</strong><br>{html.escape(previous_title)}</a>"
+            f'<strong data-i18n="previous">Previous</strong><br>{html.escape(previous_title)}</a>'
         )
 
     if page.next_document is not None:
@@ -144,13 +150,13 @@ def render_page_pager(
         next_href = relative_output_link(page.document.output_path, page.next_document.output_path)
         links.append(
             f'<a href="{html.escape(next_href, quote=True)}">'
-            f"<strong>Next</strong><br>{html.escape(next_title)}</a>"
+            f'<strong data-i18n="next">Next</strong><br>{html.escape(next_title)}</a>'
         )
 
     if not links:
         return ""
 
-    return f'<nav class="page-pager" aria-label="Page navigation">{"".join(links)}</nav>'
+    return f'<nav class="page-pager" aria-label="Page navigation" data-i18n-aria-label="pageNavigation">{"".join(links)}</nav>'
 
 
 def branch_contains_page(node: NavNode, current_output: PurePosixPath) -> bool:

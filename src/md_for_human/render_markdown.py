@@ -127,8 +127,8 @@ def build_toc_html(headings: list[tuple[int, str, str]]) -> str:
             )
         )
     return (
-        '<nav class="page-toc" aria-label="On this page">'
-        "<h2>On this page</h2>"
+        '<nav class="page-toc" aria-label="On this page" data-i18n-aria-label="onThisPage">'
+        '<h2 data-i18n="onThisPage">On this page</h2>'
         "<ul>"
         + "".join(items)
         + "</ul>"

@@ -30,7 +30,12 @@ def test_render_page_html_builds_full_shell_with_inline_assets_and_active_nav(
     assert html.startswith("<!DOCTYPE html>")
     assert '<style data-mdfh-base-style>' in html
     assert '<script data-mdfh-base-script>' in html
-    assert "prefers-color-scheme: light" in html
+    assert "color-scheme: light dark" in html
+    assert "--canvas: #ffffff;" in html
+    assert "--surface: #f7f7f7;" in html
+    assert "--hairline: #e5e5e5;" in html
+    assert ':root[data-theme="dark"]' in html
+    assert "@media (prefers-color-scheme: dark)" in html
     assert "data-sidebar-toggle" in html
     assert 'aria-current="page"' in html
     assert "<title>Intro</title>" in html
@@ -78,7 +83,7 @@ def test_render_page_html_merges_site_navigation_and_toc_into_collapsible_sideba
     assert "syncSiteNavState(true);" in html
 
 
-def test_render_page_html_includes_dark_code_block_and_table_styles(
+def test_render_page_html_includes_document_code_block_and_table_styles(
     sample_site_copy: Path,
     tmp_path: Path,
 ):
@@ -87,7 +92,7 @@ def test_render_page_html_includes_dark_code_block_and_table_styles(
 
     html = render_page_html(intro_page, nav_tree, rendered_pages)
 
-    assert "--code-bg" in html
+    assert "--code-bg: #1c1c1e;" in html
     assert ".article .highlight" in html
     assert "color: var(--code-text)" in html
     assert "overflow-x: auto" in html
@@ -95,10 +100,10 @@ def test_render_page_html_includes_dark_code_block_and_table_styles(
     assert "border-collapse: collapse" in html
     assert ".article th," in html
     assert ".article td" in html
-    assert "border: 1px solid var(--border);" in html
+    assert "border: 1px solid var(--hairline);" in html
 
 
-def test_render_page_html_does_not_override_native_selection_styling(
+def test_render_page_html_includes_theme_and_locale_controls(
     sample_site_copy: Path,
     tmp_path: Path,
 ):
@@ -107,10 +112,73 @@ def test_render_page_html_does_not_override_native_selection_styling(
 
     html = render_page_html(intro_page, nav_tree, rendered_pages)
 
-    assert "::selection" not in html
-    assert "::-moz-selection" not in html
-    assert "--selection-bg" not in html
-    assert "--selection-text" not in html
+    assert 'class="toolbar-actions"' in html
+    assert 'data-theme-toggle' in html
+    assert 'data-locale-select' in html
+    assert '<option value="en">English</option>' in html
+    assert '<option value="zh-CN">简体中文</option>' in html
+    assert '<option value="zh-TW">繁體中文</option>' in html
+    assert 'const THEME_STORAGE_KEY = "mdfh-theme";' in html
+    assert 'const LOCALE_STORAGE_KEY = "mdfh-locale";' in html
+    assert 'document.documentElement.dataset.theme = normalizedTheme;' in html
+    assert 'window.matchMedia("(prefers-color-scheme: dark)")' in html
+
+
+def test_render_page_html_marks_shell_text_for_i18n(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    _, rendered_pages, nav_tree, ordered_pages = _build_site_context(sample_site_copy, tmp_path)
+    intro_page = ordered_pages[1]
+
+    html = render_page_html(intro_page, nav_tree, rendered_pages)
+
+    assert 'data-i18n="contents">Contents</h1>' in html
+    assert 'data-i18n="siteNavigation">Site navigation</h2>' in html
+    assert 'data-i18n="onThisPage">On this page</h2>' in html
+    assert 'data-i18n="previous">Previous</strong>' in html
+    assert 'data-i18n="next">Next</strong>' in html
+    assert 'data-i18n-aria-label="siteNavigation"' in html
+    assert '"zh-CN": {' in html
+    assert '"zh-TW": {' in html
+    assert 'reviewComments: "审查评论"' in html
+    assert 'reviewComments: "審查評論"' in html
+
+
+def test_render_page_html_scopes_i18n_away_from_markdown_body() -> None:
+    document = Document(
+        source_path=Path("/tmp/standalone.md"),
+        relative_source_path=PurePosixPath("standalone.md"),
+        output_path=PurePosixPath("standalone.html"),
+    )
+    page = RenderedPage(
+        document=document,
+        title="Standalone",
+        content_html='<div data-i18n="next">Authored body marker</div>',
+    )
+
+    html = render_page_html(page, [], {document.output_path: page})
+
+    assert '<div data-i18n="next">Authored body marker</div>' in html
+    assert "function isUiTranslationElement(element)" in html
+    assert 'element.closest("[data-mdfh-content=\'1\']")' in html
+    assert 'element.closest("[data-mdfh-ui]")' in html
+    assert "document.documentElement.lang = normalizedLocale" not in html
+
+
+def test_render_page_html_uses_theme_selection_tokens(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    _, rendered_pages, nav_tree, ordered_pages = _build_site_context(sample_site_copy, tmp_path)
+    intro_page = ordered_pages[1]
+
+    html = render_page_html(intro_page, nav_tree, rendered_pages)
+
+    assert "--selection-bg" in html
+    assert "--selection-text" in html
+    assert "::selection" in html
+    assert "::-moz-selection" in html
 
 
 def test_render_page_html_uses_left_sliding_sidebar_and_distinguishes_nav_hierarchy(
@@ -127,27 +195,34 @@ def test_render_page_html_uses_left_sliding_sidebar_and_distinguishes_nav_hierar
 
     assert "--sidebar-peek-width" not in html
     assert "padding-left: var(--sidebar-width);" in html
-    assert "transition: padding-left 300ms ease;" in html
+    assert "transition: padding-left 220ms ease;" in html
     assert "padding-left: 0;" in html
-    assert "transition: transform 300ms ease;" in html
+    assert "transition: transform 220ms ease;" in html
     assert "transform: translateX(calc(-1 * var(--sidebar-width)));" in html
     assert (
         '<button type="button" class="sidebar-edge-toggle" data-sidebar-toggle '
         'data-sidebar-edge-toggle aria-controls="site-sidebar" aria-expanded="true" '
-        'aria-label="Collapse sidebar" title="Collapse sidebar">‹</button>'
+        'aria-label="Collapse sidebar" title="Collapse sidebar" '
+        'data-i18n-aria-label="collapseSidebar" data-i18n-title="collapseSidebar">‹</button>'
     ) in html
     assert "right: 1rem;" in html
-    assert "width: 2rem;" in html
-    assert "height: 2rem;" in html
+    assert "width: 1.9rem;" in html
+    assert "height: 1.9rem;" in html
     assert "min-width: 0;" in html
     assert "z-index: 2;" in html
     assert ".layout.is-sidebar-collapsed .sidebar-edge-toggle" in html
     assert 'class="page-toolbar-toggle"' in html
-    assert "position: fixed;" in html
+    toolbar_start = html.index(".page-toolbar-toggle {\n  display: none;")
+    toolbar_end = html.index(".layout.is-sidebar-collapsed .page-toolbar-toggle")
+    toolbar_css = html[toolbar_start:toolbar_end]
+
+    assert "position: fixed;" not in toolbar_css
+    assert "top: 1rem;" not in toolbar_css
+    assert "left: 1rem;" not in toolbar_css
     assert ".layout.is-sidebar-collapsed .page-toolbar-toggle" in html
     assert 'const isEdgeToggle = toggle.hasAttribute("data-sidebar-edge-toggle");' in html
     assert 'toggle.textContent = expanded ? "‹" : ">";' in html
-    assert 'toggle.textContent = expanded ? "Menu" : ">";' in html
+    assert 'toggle.textContent = t("menu");' in html
     assert 'class="nav-item nav-item-folder" data-nav-kind="folder"' in sidebar_html
     assert 'class="nav-item nav-item-file" data-nav-kind="file"' in sidebar_html
     assert 'data-nav-kind="folder"' in sidebar_html
@@ -225,25 +300,19 @@ def test_render_page_html_constrains_long_sidebar_titles(
     assert ".page-toc a" in html
 
 
-def test_render_page_html_adds_doc_close_link_to_entry_page(
+def test_render_page_html_omits_doc_close_link(
     sample_site_copy: Path,
     tmp_path: Path,
 ):
     _, rendered_pages, nav_tree, ordered_pages = _build_site_context(sample_site_copy, tmp_path)
     intro_page = ordered_pages[1]
 
-    html = render_page_html(
-        intro_page,
-        nav_tree,
-        rendered_pages,
-        PurePosixPath("index.html"),
-    )
+    html = render_page_html(intro_page, nav_tree, rendered_pages)
 
     assert 'class="article" data-doc-card' in html
-    assert 'class="article-close"' in html
-    assert 'href="../index.html"' in html
-    assert 'aria-label="Close document"' in html
-    assert "&times;" in html
+    assert 'class="article-close"' not in html
+    assert 'aria-label="Close document"' not in html
+    assert "&times;" not in html
 
 
 def test_render_page_html_adds_review_metadata_without_new_content_wrapper(
@@ -260,7 +329,7 @@ def test_render_page_html_adds_review_metadata_without_new_content_wrapper(
         'data-mdfh-source-path="guide/intro.md">'
     ) in html
     assert '<div class="article-content" data-mdfh-content="1">' in html
-    assert html.count("data-mdfh-content=") == 1
+    assert html.count('data-mdfh-content="1"') == 1
     assert '<article class="article" data-doc-card>' in html
 
 
@@ -303,7 +372,7 @@ def test_render_page_html_omits_optional_sections_when_not_present():
     sidebar_end = html.index("</aside>")
     sidebar_html = html[sidebar_start:sidebar_end]
 
-    assert "On this page" not in html
+    assert 'data-i18n="onThisPage">On this page</h2>' not in sidebar_html
     assert "data-site-nav-toggle" in html
     assert "data-site-nav-content" in html
     assert "data-toc-content" not in sidebar_html

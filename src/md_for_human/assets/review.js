@@ -6,6 +6,7 @@
     return;
   }
 
+  document.body.classList.add("mdfh-review-mode");
   const article = content.closest("[data-doc-card]") || content.parentElement;
   const page = document.body.dataset.mdfhPage || "";
   const sourcePath = document.body.dataset.mdfhSourcePath || "";
@@ -29,6 +30,42 @@
 
   const nowIso = () => new Date().toISOString();
   const clone = (value) => JSON.parse(JSON.stringify(value));
+  const fallbackReviewMessages = {
+    reviewComment: "Comment",
+    reviewEdit: "Edit",
+    reviewSave: "Save",
+    reviewDelete: "Delete",
+    reviewCancel: "Cancel",
+    reviewDocumentComment: "Document comment",
+    reviewPageComments: "Page comments",
+    reviewUnplacedHelp: "These comments are saved for this page; the exact underline is not available.",
+    reviewPlaceholder: "Write the requested change and why it matters.",
+    reviewLoading: "Still loading comments.",
+    reviewNeedComment: "Write a comment before saving.",
+    reviewSaved: "Saved.",
+    reviewDeleted: "Deleted.",
+    reviewRequestFailed: "Request failed",
+    reviewErrorPrefix: "Error",
+    reviewUnderlineUnavailable: "Exact underline is unavailable.",
+    reviewUnderlineAmbiguous: "Exact underline is ambiguous.",
+    reviewQuoteUnresolved: "Quote location could not be resolved.",
+    source: "Source",
+    reviewComments: "Review comments",
+  };
+
+  function t(key) {
+    if (window.mdfhI18n && window.mdfhI18n.t) {
+      return window.mdfhI18n.t(key);
+    }
+    return fallbackReviewMessages[key] || key;
+  }
+
+  function applyTranslations(root) {
+    if (window.mdfhI18n && window.mdfhI18n.apply) {
+      window.mdfhI18n.apply(root);
+    }
+  }
+
   prepareReviewLayout();
 
   async function request(path, options = {}) {
@@ -40,7 +77,7 @@
     const text = await response.text();
     const payload = text ? JSON.parse(text) : {};
     if (!response.ok) {
-      const message = (payload.errors || [payload.error || "Request failed"]).join("\n");
+      const message = (payload.errors || [payload.error || t("reviewRequestFailed")]).join("\n");
       throw new Error(message);
     }
     return payload;
@@ -66,7 +103,7 @@
     }
     const hasErrors = Boolean(validation && validation.errors && validation.errors.length);
     if (validation && validation.errors && validation.errors.length) {
-      lines.push(uniqueMessages(validation.errors).map((item) => `Error: ${escapeHtml(item)}`).join("<br>"));
+      lines.push(uniqueMessages(validation.errors).map((item) => `${t("reviewErrorPrefix")}: ${escapeHtml(item)}`).join("<br>"));
     }
     els.toast.innerHTML = lines.join("<br>");
     els.toast.hidden = lines.length === 0;
@@ -99,6 +136,7 @@
     const unplaced = els.unplaced || document.createElement("div");
     unplaced.className = "mdfh-review-unplaced";
     unplaced.dataset.mdfhReviewUnplaced = "1";
+    unplaced.dataset.mdfhUi = "1";
     unplaced.hidden = true;
     article.insertBefore(unplaced, content);
     els.unplaced = unplaced;
@@ -133,7 +171,31 @@
       row.innerHTML = '<div class="mdfh-review-body" data-mdfh-review-body="1"></div><div class="mdfh-review-comments" data-mdfh-review-comments="1"></div>';
       content.appendChild(row);
     }
+    addColumnLabels();
     content.dataset.mdfhReviewPrepared = "1";
+  }
+
+  function addColumnLabels() {
+    if (content.querySelector("[data-mdfh-review-column-labels]")) {
+      return;
+    }
+    const labels = document.createElement("div");
+    labels.className = "mdfh-review-column-labels";
+    labels.dataset.mdfhReviewColumnLabels = "1";
+    labels.dataset.mdfhUi = "1";
+
+    const bodyLabel = document.createElement("div");
+    bodyLabel.className = "mdfh-review-column-label mdfh-review-body-label";
+    bodyLabel.dataset.i18n = "source";
+    bodyLabel.textContent = t("source");
+
+    const commentsLabel = document.createElement("div");
+    commentsLabel.className = "mdfh-review-column-label mdfh-review-comments-label";
+    commentsLabel.dataset.i18n = "reviewComments";
+    commentsLabel.textContent = t("reviewComments");
+
+    labels.append(bodyLabel, commentsLabel);
+    content.insertBefore(labels, content.firstChild);
   }
 
   function resetDraft() {
@@ -256,12 +318,12 @@
 
   async function saveCurrent() {
     if (!state.artifact) {
-      toast("Still loading comments.");
+      toast(t("reviewLoading"));
       return;
     }
     const comment = currentEditorValue();
     if (!comment) {
-      toast("Write a comment before saving.");
+      toast(t("reviewNeedComment"));
       return;
     }
     const artifact = clone(state.artifact);
@@ -290,7 +352,7 @@
     artifact.annotations = annotations
       .filter((item) => item.id !== annotation.id)
       .concat(annotation);
-    if (await saveArtifact(artifact, "Saved.")) {
+    if (await saveArtifact(artifact, t("reviewSaved"))) {
       resetDraft();
       renderAnnotations();
     }
@@ -320,7 +382,7 @@
     }
     const artifact = clone(state.artifact);
     artifact.annotations = currentAnnotations().filter((item) => item.id !== state.editingId);
-    if (await saveArtifact(artifact, "Deleted.")) {
+    if (await saveArtifact(artifact, t("reviewDeleted"))) {
       resetDraft();
       renderAnnotations();
     }
@@ -405,41 +467,42 @@
     const card = document.createElement("article");
     card.className = "mdfh-review-card";
     card.dataset.mdfhReviewCard = annotation.id;
+    card.dataset.mdfhUi = "1";
     card.tabIndex = 0;
     const sourceRange = sourceRangeForAnnotation(annotation);
     const locatorLabel = sourceRangeLabel(sourceRange);
-    const anchorLabel = [locatorLabel, annotation.quote || "Document comment"].filter(Boolean).join(" · ");
+    const anchorLabel = [locatorLabel, annotation.quote || t("reviewDocumentComment")].filter(Boolean).join(" · ");
     card.innerHTML = `
       <p>${escapeHtml(annotation.comment)}</p>
       <small>${escapeHtml(anchorLabel)}</small>
       <div class="mdfh-review-card-actions">
-        <button type="button" data-mdfh-review-edit="${escapeAttr(annotation.id)}">Edit</button>
+        <button type="button" data-mdfh-review-edit="${escapeAttr(annotation.id)}" data-i18n="reviewEdit">${escapeHtml(t("reviewEdit"))}</button>
       </div>
     `;
+    applyTranslations(card);
     return card;
   }
 
   function createEditor() {
-    const existing = state.editingId
-      ? currentAnnotations().find((annotation) => annotation.id === state.editingId)
-      : null;
     const value = state.draftComment || "";
-    const anchor = state.documentMode ? "Document comment" : state.selectedQuote;
+    const anchor = state.documentMode ? t("reviewDocumentComment") : state.selectedQuote;
     const locatorLabel = sourceRangeLabel(state.selectedSourceRange);
     const editor = document.createElement("form");
     editor.className = "mdfh-review-editor";
     editor.dataset.mdfhReviewEditor = "1";
+    editor.dataset.mdfhUi = "1";
     editor.innerHTML = `
-      <div class="mdfh-review-anchor">${escapeHtml(anchor || "Document comment")}</div>
+      <div class="mdfh-review-anchor">${escapeHtml(anchor || t("reviewDocumentComment"))}</div>
       ${locatorLabel ? `<small>${escapeHtml(locatorLabel)}</small>` : ""}
       <textarea class="mdfh-review-comment-input" data-mdfh-review-comment-input
-        placeholder="Write the requested change and why it matters.">${escapeHtml(value)}</textarea>
+        placeholder="${escapeAttr(t("reviewPlaceholder"))}" data-i18n-placeholder="reviewPlaceholder">${escapeHtml(value)}</textarea>
       <div class="mdfh-review-editor-actions">
-        <button type="submit" data-mdfh-review-save>Save</button>
-        ${state.editingId ? '<button type="button" data-mdfh-review-delete>Delete</button>' : ""}
-        <button type="button" data-mdfh-review-cancel>Cancel</button>
+        <button type="submit" data-mdfh-review-save data-i18n="reviewSave">${escapeHtml(t("reviewSave"))}</button>
+        ${state.editingId ? `<button type="button" data-mdfh-review-delete data-i18n="reviewDelete">${escapeHtml(t("reviewDelete"))}</button>` : ""}
+        <button type="button" data-mdfh-review-cancel data-i18n="reviewCancel">${escapeHtml(t("reviewCancel"))}</button>
       </div>
     `;
+    applyTranslations(editor);
     return editor;
   }
 
@@ -458,29 +521,30 @@
     }
     els.unplaced.hidden = false;
     els.unplaced.innerHTML = `
-      <p><strong>Page comments</strong></p>
-      <small>These comments are saved for this page; the exact underline is not available.</small>
+      <p><strong data-i18n="reviewPageComments">${escapeHtml(t("reviewPageComments"))}</strong></p>
+      <small data-i18n="reviewUnplacedHelp">${escapeHtml(t("reviewUnplacedHelp"))}</small>
       <div class="mdfh-review-unplaced-list">
         ${unplaced.map((annotation) => {
           return `
             <div class="mdfh-review-unplaced-item">
               <p>${escapeHtml(annotation.comment)}</p>
-              <small>${escapeHtml(annotation.quote || "Document comment")}</small>
+              <small>${escapeHtml(annotation.quote || t("reviewDocumentComment"))}</small>
               <div class="mdfh-review-card-actions">
-                <button type="button" data-mdfh-review-edit="${escapeAttr(annotation.id)}">Edit</button>
+                <button type="button" data-mdfh-review-edit="${escapeAttr(annotation.id)}" data-i18n="reviewEdit">${escapeHtml(t("reviewEdit"))}</button>
               </div>
             </div>
           `;
         }).join("")}
       </div>
     `;
+    applyTranslations(els.unplaced);
   }
 
   function markSavedQuote(annotation) {
     const ranges = findQuoteRanges(annotation.quote);
     if (ranges.length !== 1) {
       state.anchorState.set(annotation.id, {
-        warning: ranges.length === 0 ? "Exact underline is unavailable." : "Exact underline is ambiguous.",
+        warning: ranges.length === 0 ? t("reviewUnderlineUnavailable") : t("reviewUnderlineAmbiguous"),
       });
       return;
     }
@@ -767,7 +831,7 @@
   function locateQuote(quote, annotationId = "") {
     const ranges = findQuoteRanges(quote);
     if (ranges.length !== 1) {
-      toast(ranges.length === 0 ? "Exact underline is unavailable." : "Exact underline is ambiguous.");
+      toast(ranges.length === 0 ? t("reviewUnderlineUnavailable") : t("reviewUnderlineAmbiguous"));
       return;
     }
     let target = annotationId ? firstMarkerForAnnotation(annotationId) : null;
@@ -780,7 +844,7 @@
       }
     }
     if (!target || !content.contains(target)) {
-      toast("Quote location could not be resolved.");
+      toast(t("reviewQuoteUnresolved"));
       return;
     }
     const block = target.closest("p, li, blockquote, pre, h1, h2, h3, h4, h5, h6") || target;
@@ -989,6 +1053,10 @@
   document.addEventListener("mouseup", captureSelection);
   document.addEventListener("keyup", captureSelection);
   els.open.addEventListener("click", startDocumentComment);
+  window.addEventListener("mdfh:localechange", () => {
+    applyTranslations(document);
+    renderAnnotations();
+  });
   window.addEventListener("resize", () => renderAnnotations());
   content.querySelectorAll("img").forEach((image) => {
     image.addEventListener("load", () => renderAnnotations(), { once: true });
