@@ -165,7 +165,7 @@ and leaves generated HTML files unchanged. API routes live under
 write `.md-for-human/review/annotations.json` plus the derived `review.md`.
 The UI uses one marker, an underline/highlight anchor, plus a right comment rail.
 Rendered Markdown blocks carry `data-mdfh-source-lines`, letting the browser save
-the selected block's Markdown line range. The server rejects schema, page, and
+the selected Markdown line range. The server rejects schema, page, and
 source-path hard failures before writing. Missing or repeated quote anchors are
 saved as diagnostics so the communication artifact remains available for agent
 handoff.

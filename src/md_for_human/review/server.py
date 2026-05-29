@@ -1542,7 +1542,24 @@ REVIEW_CLIENT_JS = r"""
 
   function sourceRangeForSelection(range) {
     const startElement = elementForNode(range.startContainer);
-    return sourceRangeForElement(startElement);
+    const endElement = elementForNode(range.endContainer);
+    return mergeSourceRanges(
+      sourceRangeForElement(startElement),
+      sourceRangeForElement(endElement),
+    );
+  }
+
+  function mergeSourceRanges(startRange, endRange) {
+    if (!startRange) {
+      return endRange;
+    }
+    if (!endRange) {
+      return startRange;
+    }
+    return {
+      start_line: Math.min(startRange.start_line, endRange.start_line),
+      end_line: Math.max(startRange.end_line, endRange.end_line),
+    };
   }
 
   function sourceRangeForElement(element) {

@@ -69,9 +69,9 @@ md-for-human --review OUTPUT_DIR
 The UI is a protocol client over the generated site. It lets the reviewer select
 rendered text, write one free-text comment, and save to the same
 `annotations.json`. The only visual marker is an underline/highlight anchor plus
-the right comment rail. Behind that visual anchor, the UI records the Markdown
-source line range for the selected block when available. If no text is selected,
-the UI writes a whole-document comment with `scope: "document"`.
+the right comment rail. Behind that visual anchor, the UI records the full
+Markdown source line range covered by the selection when available. If no text is
+selected, the UI writes a whole-document comment with `scope: "document"`.
 
 The review server binds to `127.0.0.1`, uses a per-session token for
 `/__mdfh_review/` API calls, does not enable CORS, and only writes

@@ -450,6 +450,8 @@ def test_review_server_injected_ui_uses_inline_comments_without_fixed_rail(
     assert "rawIndexToSegments" in served
     assert "data-mdfh-source-lines" in served
     assert "sourceRangeForSelection" in served
+    assert "range.endContainer" in served
+    assert "mergeSourceRanges" in served
     assert "sourceRangeForAnnotation" in served
     assert "annotation.source_range" in served
     assert "firstElementForSourceRange" in served
