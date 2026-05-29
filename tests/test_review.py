@@ -555,6 +555,41 @@ def test_validate_review_warns_for_missing_and_repeated_quotes(
     assert 'ann_repeated_quote: quote found multiple times in guide/setup.html' in result.warnings
 
 
+def test_validate_review_canonicalizes_inline_markup_and_cjk_punctuation(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    (sample_site_copy / "guide" / "setup.md").write_text(
+        (
+            "# Setup\n\n"
+            "现有 `workspace/groups/<group_slug>/`，"
+            "暂不新增 [`workspace/roles/`](../reference/README.md)。\n"
+        ),
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "output"
+    build_site(sample_site_copy, output_dir)
+    _write_review_artifact_v2(
+        output_dir,
+        [
+            {
+                "id": "ann_cjk_inline",
+                "page": "guide/setup.html",
+                "source_path": "guide/setup.md",
+                "quote": "现有 workspace/groups/<group_slug>/，暂不新增 workspace/roles/。",
+                "comment": "这类跨 inline markup 的选区刷新后也应该稳定定位。",
+                "created_at": "2026-05-28T12:00:00Z",
+                "updated_at": "2026-05-28T12:00:00Z",
+            },
+        ],
+    )
+
+    result = validate_review(output_dir)
+
+    assert result.errors == []
+    assert result.warnings == []
+
+
 def test_validate_review_warns_for_context_mismatch(sample_site_copy: Path, tmp_path: Path):
     output_dir = tmp_path / "output"
     build_site(sample_site_copy, output_dir)

@@ -17,7 +17,11 @@ from md_for_human.review.server import (
     ReviewServerError,
     make_review_handler,
 )
-from md_for_human.review.artifacts import stale_annotations_path, write_text_atomic
+from md_for_human.review.artifacts import (
+    stale_annotations_path,
+    write_json_atomic,
+    write_text_atomic,
+)
 from md_for_human.review.validate import validate_review
 
 
@@ -113,7 +117,7 @@ def test_review_server_rejects_legacy_schema_on_save(
     assert "browser review writes only mdfh-review-v2" in "\n".join(exc_info.value.errors)
 
 
-def test_review_server_saves_quote_warnings_and_regenerates_summary(
+def test_review_server_saves_degraded_quote_without_returning_user_warnings(
     sample_site_copy: Path,
     tmp_path: Path,
 ):
@@ -128,9 +132,7 @@ def test_review_server_saves_quote_warnings_and_regenerates_summary(
     response = app.save_annotations(token="test-token", artifact=artifact)
 
     assert response["validation"]["errors"] == []
-    assert response["validation"]["warnings"] == [
-        "ann_ui: quote not found in guide/setup.html"
-    ]
+    assert response["validation"]["warnings"] == []
     assert response["validation"]["summary_path"] == str(
         output_dir / ".md-for-human" / "review" / "review.md"
     )
@@ -139,8 +141,43 @@ def test_review_server_saves_quote_warnings_and_regenerates_summary(
             encoding="utf-8"
         )
     )
-    assert saved == artifact
+    saved_annotations = saved["annotations"]
+    assert isinstance(saved_annotations, list)
+    assert saved_annotations[0]["quote"] == "Missing quote anchor."
+    assert saved_annotations[0]["locator"]["status"] == "degraded"
     assert (output_dir / ".md-for-human" / "review" / "review.md").exists()
+
+    dev_result = validate_review(output_dir)
+    assert dev_result.warnings == ["ann_ui: quote not found in guide/setup.html"]
+
+
+def test_review_server_refreshes_locator_metadata_for_existing_degraded_quotes(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    output_dir = tmp_path / "output"
+    build_site(sample_site_copy, output_dir)
+    artifact = _valid_artifact()
+    annotations = artifact["annotations"]
+    assert isinstance(annotations, list)
+    annotations[0]["quote"] = "Missing quote anchor."
+    write_json_atomic(
+        output_dir / ".md-for-human" / "review" / "annotations.json",
+        artifact,
+    )
+    app = ReviewServerApp(output_dir, token="test-token")
+
+    state = app.get_state(token="test-token")
+
+    state_annotations = state["artifact"]["annotations"]
+    assert isinstance(state_annotations, list)
+    assert state_annotations[0]["locator"]["status"] == "degraded"
+    saved = json.loads(
+        (output_dir / ".md-for-human" / "review" / "annotations.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert saved["annotations"][0]["locator"]["reason"] == "quote_not_found"
 
 
 def test_review_server_valid_saved_artifact_passes_validate_review(
@@ -239,6 +276,32 @@ def test_review_server_quarantines_stale_annotations_after_source_delete(
     stale = json.loads(stale_annotations_path(output_dir).read_text(encoding="utf-8"))
     assert stale["annotations"][0]["id"] == "ann_ui"
     assert "no longer listed" in stale["annotations"][0]["stale_reason"]
+    result = validate_review(output_dir)
+    assert result.errors == []
+
+
+def test_review_server_quarantines_stale_annotations_after_source_path_mismatch(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    output_dir = tmp_path / "output"
+    build_site(sample_site_copy, output_dir)
+    artifact = _valid_artifact()
+    annotations = artifact["annotations"]
+    assert isinstance(annotations, list)
+    annotations[0]["source_path"] = "guide/intro.md"
+    write_json_atomic(
+        output_dir / ".md-for-human" / "review" / "annotations.json",
+        artifact,
+    )
+
+    app = ReviewServerApp(output_dir, token="test-token")
+    state = app.get_state(token="test-token")
+
+    assert state["artifact"]["annotations"] == []
+    stale = json.loads(stale_annotations_path(output_dir).read_text(encoding="utf-8"))
+    assert stale["annotations"][0]["id"] == "ann_ui"
+    assert "no longer matches manifest source_path" in stale["annotations"][0]["stale_reason"]
     result = validate_review(output_dir)
     assert result.errors == []
 
@@ -354,7 +417,9 @@ def test_review_server_injected_ui_uses_inline_comments_without_fixed_rail(
     assert "hasActiveEditor" in served
     assert "if (!preserveEditor) {" in served
     assert "uniqueMessages" in served
-    assert "Check unplaced comments on each page" in served
+    assert "Page comments" in served
+    assert "Check unplaced comments on each page" not in served
+    assert "Quote not found on this page" not in served
     assert "findQuoteRanges" in served
     assert "/state" in served
     assert "locateQuote" in served

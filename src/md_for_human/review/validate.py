@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
+from html import unescape
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
@@ -31,6 +33,8 @@ V2_COMMON_REQUIRED_FIELDS = (
     "updated_at",
 )
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+SPACE_BEFORE_EQUIVALENT_PUNCTUATION_RE = re.compile(r"\s+([，。；：！？、）》】」』）,.!?;:%％])")
+SPACE_AFTER_EQUIVALENT_PUNCTUATION_RE = re.compile(r"([（《【「『(])\s+")
 
 
 @dataclass(slots=True)
@@ -341,8 +345,8 @@ def validate_quote(
             f'does not match "{source_path}"'
         )
 
-    normalized_page_text = normalize_whitespace(page_content.text)
-    normalized_quote = normalize_whitespace(quote)
+    normalized_page_text = normalize_anchor_text(page_content.text)
+    normalized_quote = normalize_anchor_text(quote)
     match_count = count_occurrences(normalized_page_text, normalized_quote)
     if match_count == 0:
         warnings.append(f"{annotation_id}: quote not found in {page}")
@@ -358,14 +362,14 @@ def validate_context(
     annotation_id: str,
     warnings: list[str],
 ) -> None:
-    context_before = normalize_whitespace(string_field(annotation, "context_before"))
-    context_after = normalize_whitespace(string_field(annotation, "context_after"))
+    context_before = normalize_anchor_text(string_field(annotation, "context_before"))
+    context_after = normalize_anchor_text(string_field(annotation, "context_after"))
     if context_before:
-        before_anchor = normalize_whitespace(f"{context_before} {normalized_quote}")
+        before_anchor = normalize_anchor_text(f"{context_before} {normalized_quote}")
         if before_anchor not in normalized_page_text:
             warnings.append(f"{annotation_id}: context_before does not match nearby rendered text")
     if context_after:
-        after_anchor = normalize_whitespace(f"{normalized_quote} {context_after}")
+        after_anchor = normalize_anchor_text(f"{normalized_quote} {context_after}")
         if after_anchor not in normalized_page_text:
             warnings.append(f"{annotation_id}: context_after does not match nearby rendered text")
 
@@ -428,6 +432,14 @@ class ContentTextParser(HTMLParser):
 
 def normalize_whitespace(value: str) -> str:
     return " ".join(value.split())
+
+
+def normalize_anchor_text(value: str) -> str:
+    normalized = unicodedata.normalize("NFC", unescape(value))
+    normalized = normalize_whitespace(normalized)
+    normalized = SPACE_BEFORE_EQUIVALENT_PUNCTUATION_RE.sub(r"\1", normalized)
+    normalized = SPACE_AFTER_EQUIVALENT_PUNCTUATION_RE.sub(r"\1", normalized)
+    return normalized
 
 
 def count_occurrences(haystack: str, needle: str) -> int:

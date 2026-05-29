@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 import secrets
 import threading
@@ -22,9 +23,14 @@ from md_for_human.review.artifacts import (
 from md_for_human.review.summary import write_review_summary
 from md_for_human.review.validate import (
     ReviewValidationResult,
+    count_occurrences,
+    extract_page_content_text,
     is_safe_relative_posix_path,
     load_json_file,
+    normalize_anchor_text,
+    normalize_whitespace,
     parse_manifest_documents,
+    string_field,
     validate_review,
     validate_review_artifact,
 )
@@ -115,12 +121,13 @@ class ReviewServerApp:
                 "review artifact has hard validation errors",
                 errors=result.errors,
             )
-        write_json_atomic(annotations_path(self.output_dir), artifact)
-        summary_path = write_review_summary(self.output_dir, artifact)
-        validation = validation_payload(result)
+        writable_artifact = add_locator_metadata(self.output_dir, artifact)
+        write_json_atomic(annotations_path(self.output_dir), writable_artifact)
+        summary_path = write_review_summary(self.output_dir, writable_artifact)
+        validation = browser_save_validation_payload(result)
         validation["summary_path"] = str(summary_path)
         return {
-            "artifact": artifact,
+            "artifact": writable_artifact,
             "validation": validation,
         }
 
@@ -167,7 +174,8 @@ class ReviewServerApp:
         loaded_artifact = load_json_file(path, errors)
         if not isinstance(loaded_artifact, dict):
             raise ReviewServerError("annotations.json is invalid", errors=errors)
-        return self._quarantine_stale_annotations(loaded_artifact)
+        active_artifact = self._quarantine_stale_annotations(loaded_artifact)
+        return self._refresh_locator_metadata(active_artifact)
 
     def _quarantine_stale_annotations(self, artifact: dict[str, Any]) -> dict[str, Any]:
         if artifact.get("schema_version") != SCHEMA_VERSION:
@@ -234,6 +242,14 @@ class ReviewServerApp:
                 seen_ids.add(annotation_id)
         combined["annotations"] = combined_annotations
         write_json_atomic(path, combined)
+
+    def _refresh_locator_metadata(self, artifact: dict[str, Any]) -> dict[str, Any]:
+        if artifact.get("schema_version") != SCHEMA_VERSION:
+            return artifact
+        refreshed_artifact = add_locator_metadata(self.output_dir, artifact)
+        if refreshed_artifact != artifact:
+            write_json_atomic(annotations_path(self.output_dir), refreshed_artifact)
+        return refreshed_artifact
 
     def _site_path_from_url(self, relative_url_path: str) -> PurePosixPath:
         raw_path = unquote(urlsplit(relative_url_path).path).lstrip("/")
@@ -355,6 +371,103 @@ def validation_payload(result: ReviewValidationResult) -> dict[str, Any]:
         "pages_touched": result.pages_touched,
         "summary_path": str(result.summary_path) if result.summary_path is not None else None,
     }
+
+
+def browser_save_validation_payload(result: ReviewValidationResult) -> dict[str, Any]:
+    payload = validation_payload(result)
+    payload["warnings"] = []
+    return payload
+
+
+def add_locator_metadata(output_dir: Path, artifact: dict[str, Any]) -> dict[str, Any]:
+    writable_artifact = deepcopy(artifact)
+    annotations = writable_artifact.get("annotations")
+    if not isinstance(annotations, list):
+        return writable_artifact
+
+    page_text_cache: dict[str, str | None] = {}
+    for annotation in annotations:
+        if isinstance(annotation, dict):
+            apply_locator_metadata(output_dir, annotation, page_text_cache)
+    return writable_artifact
+
+
+def apply_locator_metadata(
+    output_dir: Path,
+    annotation: dict[str, Any],
+    page_text_cache: dict[str, str | None],
+) -> None:
+    quote = string_field(annotation, "quote")
+    if not quote:
+        annotation["locator"] = {"status": "document", "strategy": "document"}
+        return
+
+    page = string_field(annotation, "page")
+    if page not in page_text_cache:
+        page_content = extract_page_content_text(output_dir / page) if page else None
+        page_text_cache[page] = page_content.text if page_content is not None else None
+    page_text = page_text_cache[page]
+    if page_text is None:
+        annotation["locator"] = {
+            "status": "degraded",
+            "strategy": "page",
+            "reason": "page_text_unavailable",
+        }
+        return
+
+    exact_page_text = normalize_whitespace(page_text)
+    exact_quote = normalize_whitespace(quote)
+    exact_count = count_occurrences(exact_page_text, exact_quote)
+    canonical_page_text = normalize_anchor_text(page_text)
+    canonical_quote = normalize_anchor_text(quote)
+    canonical_count = count_occurrences(canonical_page_text, canonical_quote)
+
+    if exact_count == 1:
+        update_resolved_locator(annotation, exact_page_text, exact_quote, "exact_quote")
+    elif canonical_count == 1:
+        update_resolved_locator(
+            annotation,
+            canonical_page_text,
+            canonical_quote,
+            "canonical_quote",
+        )
+    else:
+        annotation["locator"] = {
+            "status": "degraded",
+            "strategy": "page",
+            "reason": "quote_repeated" if canonical_count > 1 else "quote_not_found",
+            "canonical_quote": canonical_quote,
+        }
+
+
+def update_resolved_locator(
+    annotation: dict[str, Any],
+    page_text: str,
+    quote: str,
+    strategy: str,
+) -> None:
+    start = page_text.find(quote)
+    annotation["locator"] = {
+        "status": "resolved",
+        "strategy": strategy,
+        "canonical_quote": quote,
+        "occurrence": 0,
+        "text_offset": start,
+    }
+    context_before, context_after = locator_context(page_text, start, len(quote))
+    if context_before:
+        annotation.setdefault("context_before", context_before)
+    if context_after:
+        annotation.setdefault("context_after", context_after)
+
+
+def locator_context(page_text: str, start: int, quote_length: int) -> tuple[str, str]:
+    window = 80
+    if start < 0:
+        return "", ""
+    before = page_text[max(0, start - window) : start].strip()
+    after = page_text[start + quote_length : start + quote_length + window].strip()
+    return before, after
 
 
 def inject_review_client(html: str, token: str) -> str:
@@ -670,21 +783,12 @@ REVIEW_CLIENT_JS = r"""
       lines.push(escapeHtml(message));
     }
     const hasErrors = Boolean(validation && validation.errors && validation.errors.length);
-    const hasWarnings = Boolean(validation && validation.warnings && validation.warnings.length);
     if (validation && validation.errors && validation.errors.length) {
       lines.push(uniqueMessages(validation.errors).map((item) => `Error: ${escapeHtml(item)}`).join("<br>"));
     }
-    if (validation && validation.warnings && validation.warnings.length) {
-      const warnings = uniqueMessages(validation.warnings);
-      const visibleWarnings = warnings.slice(0, 3);
-      lines.push(visibleWarnings.map((item) => `Warning: ${escapeHtml(item)}`).join("<br>"));
-      if (warnings.length > visibleWarnings.length) {
-        lines.push(`${warnings.length - visibleWarnings.length} more warning(s). Check unplaced comments on each page.`);
-      }
-    }
     els.toast.innerHTML = lines.join("<br>");
     els.toast.hidden = lines.length === 0;
-    if (!hasErrors && !hasWarnings && message) {
+    if (!hasErrors && message) {
       state.toastTimer = window.setTimeout(() => {
         els.toast.hidden = true;
       }, 1800);
@@ -1061,15 +1165,14 @@ REVIEW_CLIENT_JS = r"""
     }
     els.unplaced.hidden = false;
     els.unplaced.innerHTML = `
-      <p><strong>Unplaced comments</strong></p>
-      <small>These comments belong to this page, but their quote cannot be placed uniquely.</small>
+      <p><strong>Page comments</strong></p>
+      <small>These comments are saved for this page; the exact underline is not available.</small>
       <div class="mdfh-review-unplaced-list">
         ${unplaced.map((annotation) => {
-          const status = state.anchorState.get(annotation.id);
           return `
             <div class="mdfh-review-unplaced-item">
               <p>${escapeHtml(annotation.comment)}</p>
-              <small>${escapeHtml(status.warning)} ${escapeHtml(annotation.quote || "")}</small>
+              <small>${escapeHtml(annotation.quote || "Document comment")}</small>
               <div class="mdfh-review-card-actions">
                 <button type="button" data-mdfh-review-edit="${escapeAttr(annotation.id)}">Edit</button>
               </div>
@@ -1084,7 +1187,7 @@ REVIEW_CLIENT_JS = r"""
     const ranges = findQuoteRanges(annotation.quote);
     if (ranges.length !== 1) {
       state.anchorState.set(annotation.id, {
-        warning: ranges.length === 0 ? "Quote not found on this page." : "Quote appears more than once.",
+        warning: ranges.length === 0 ? "Exact underline is unavailable." : "Exact underline is ambiguous.",
       });
       return;
     }
@@ -1241,7 +1344,7 @@ REVIEW_CLIENT_JS = r"""
   function locateQuote(quote) {
     const ranges = findQuoteRanges(quote);
     if (ranges.length !== 1) {
-      toast(ranges.length === 0 ? "Quote was not found on this page." : "Quote appears more than once.");
+      toast(ranges.length === 0 ? "Exact underline is unavailable." : "Exact underline is ambiguous.");
       return;
     }
     let target = firstMarkerForAnnotation(state.editingId);
