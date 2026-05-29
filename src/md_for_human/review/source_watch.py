@@ -47,5 +47,3 @@ def stale_annotation_reason(
             f'"{document.source_path}" for page "{page}"'
         )
     return None
-
-

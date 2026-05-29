@@ -447,6 +447,38 @@ def test_main_verify_accepts_query_only_local_links(tmp_path: Path):
     assert stderr.getvalue() == ""
 
 
+def test_main_verify_ignores_javascript_scheme_links(tmp_path: Path):
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    input_dir = tmp_path / "docs"
+    input_dir.mkdir()
+    (input_dir / "index.md").write_text(
+        "\n".join(
+            [
+                "# Index",
+                "",
+                '<a href="javascript:alert(1)">JS action</a>',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "output"
+
+    result = main(
+        [str(input_dir), "--output", str(output_dir), "--verify", "--no-open"],
+        opener=lambda *_: None,
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    assert result == 0
+    assert 'href="javascript:alert(1)"' in (
+        output_dir / "index.html"
+    ).read_text(encoding="utf-8")
+    assert "Verification: passed" in stdout.getvalue()
+    assert stderr.getvalue() == ""
+
+
 def test_main_validate_review_reports_success_without_rebuilding(
     sample_site_copy: Path,
     tmp_path: Path,

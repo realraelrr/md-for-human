@@ -102,5 +102,3 @@ def locator_context(page_text: str, start: int, quote_length: int) -> tuple[str,
     before = page_text[max(0, start - window) : start].strip()
     after = page_text[start + quote_length : start + quote_length + window].strip()
     return before, after
-
-

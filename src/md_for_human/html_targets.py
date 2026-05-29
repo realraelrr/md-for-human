@@ -3,6 +3,7 @@ from __future__ import annotations
 from html import escape
 from html.parser import HTMLParser
 from typing import Callable
+from urllib.parse import urlsplit
 
 
 class LocalTargetParser(HTMLParser):
@@ -14,7 +15,8 @@ class LocalTargetParser(HTMLParser):
         for name, value in attrs:
             if name not in {"href", "src"} or not value:
                 continue
-            if value.startswith(("http://", "https://", "mailto:", "tel:", "data:")):
+            parsed = urlsplit(value)
+            if parsed.scheme or parsed.netloc:
                 continue
             self.targets.append(value.split("?", 1)[0].split("#", 1)[0] or value)
 
