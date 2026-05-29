@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import secrets
+import threading
 import time
 import webbrowser
 from http import HTTPStatus
@@ -15,6 +16,7 @@ from md_for_human.builder import build_site_preserving_review
 from md_for_human.review.artifacts import (
     annotations_path,
     empty_artifact,
+    stale_annotations_path,
     write_json_atomic,
 )
 from md_for_human.review.summary import write_review_summary
@@ -22,6 +24,7 @@ from md_for_human.review.validate import (
     ReviewValidationResult,
     is_safe_relative_posix_path,
     load_json_file,
+    parse_manifest_documents,
     validate_review,
     validate_review_artifact,
 )
@@ -164,7 +167,73 @@ class ReviewServerApp:
         loaded_artifact = load_json_file(path, errors)
         if not isinstance(loaded_artifact, dict):
             raise ReviewServerError("annotations.json is invalid", errors=errors)
-        return loaded_artifact
+        return self._quarantine_stale_annotations(loaded_artifact)
+
+    def _quarantine_stale_annotations(self, artifact: dict[str, Any]) -> dict[str, Any]:
+        if artifact.get("schema_version") != SCHEMA_VERSION:
+            return artifact
+        annotations = artifact.get("annotations")
+        if not isinstance(annotations, list):
+            return artifact
+
+        manifest_errors: list[str] = []
+        manifest = load_json_file(self.manifest_path, manifest_errors)
+        documents = parse_manifest_documents(manifest, manifest_errors)
+        if manifest_errors:
+            return artifact
+
+        active_annotations: list[Any] = []
+        stale_annotations: list[dict[str, Any]] = []
+        for annotation in annotations:
+            if not isinstance(annotation, dict):
+                active_annotations.append(annotation)
+                continue
+            stale_reason = stale_annotation_reason(annotation, documents)
+            if stale_reason is None:
+                active_annotations.append(annotation)
+                continue
+            stale_item = dict(annotation)
+            stale_item["stale_reason"] = stale_reason
+            stale_annotations.append(stale_item)
+
+        if not stale_annotations:
+            return artifact
+
+        cleaned_artifact = dict(artifact)
+        cleaned_artifact["annotations"] = active_annotations
+        write_json_atomic(annotations_path(self.output_dir), cleaned_artifact)
+        self._append_stale_annotations(stale_annotations)
+        return cleaned_artifact
+
+    def _append_stale_annotations(self, stale_annotations: list[dict[str, Any]]) -> None:
+        path = stale_annotations_path(self.output_dir)
+        existing_errors: list[str] = []
+        existing = load_json_file(path, existing_errors) if path.exists() else None
+        if isinstance(existing, dict) and isinstance(existing.get("annotations"), list):
+            combined = dict(existing)
+            combined_annotations = [
+                item for item in existing["annotations"] if isinstance(item, dict)
+            ]
+        else:
+            combined = {
+                "schema_version": SCHEMA_VERSION,
+                "source_manifest": ".md-for-human/manifest.json",
+                "annotations": [],
+            }
+            combined_annotations = []
+
+        seen_ids = {
+            item.get("id") for item in combined_annotations if isinstance(item.get("id"), str)
+        }
+        for annotation in stale_annotations:
+            annotation_id = annotation.get("id")
+            if isinstance(annotation_id, str) and annotation_id in seen_ids:
+                continue
+            combined_annotations.append(annotation)
+            if isinstance(annotation_id, str):
+                seen_ids.add(annotation_id)
+        combined["annotations"] = combined_annotations
+        write_json_atomic(path, combined)
 
     def _site_path_from_url(self, relative_url_path: str) -> PurePosixPath:
         raw_path = unquote(urlsplit(relative_url_path).path).lstrip("/")
@@ -252,6 +321,29 @@ def snapshot_source_tree(source_input: Path) -> dict[str, tuple[int, int]]:
 def stat_signature(path: Path) -> tuple[int, int]:
     stat_result = path.lstat()
     return stat_result.st_mtime_ns, stat_result.st_size
+
+
+def stale_annotation_reason(
+    annotation: dict[str, Any],
+    documents: dict[str, Any],
+) -> str | None:
+    page = annotation.get("page")
+    source_path = annotation.get("source_path")
+    if not isinstance(page, str) or not is_safe_relative_posix_path(page):
+        return None
+    if source_path is not None and (
+        not isinstance(source_path, str) or not is_safe_relative_posix_path(source_path)
+    ):
+        return None
+    document = documents.get(page)
+    if document is None:
+        return f'page "{page}" is no longer listed in manifest documents'
+    if isinstance(source_path, str) and source_path != document.source_path:
+        return (
+            f'source_path "{source_path}" no longer matches manifest source_path '
+            f'"{document.source_path}" for page "{page}"'
+        )
+    return None
 
 
 def validation_payload(result: ReviewValidationResult) -> dict[str, Any]:
@@ -580,10 +672,15 @@ REVIEW_CLIENT_JS = r"""
     const hasErrors = Boolean(validation && validation.errors && validation.errors.length);
     const hasWarnings = Boolean(validation && validation.warnings && validation.warnings.length);
     if (validation && validation.errors && validation.errors.length) {
-      lines.push(validation.errors.map((item) => `Error: ${escapeHtml(item)}`).join("<br>"));
+      lines.push(uniqueMessages(validation.errors).map((item) => `Error: ${escapeHtml(item)}`).join("<br>"));
     }
     if (validation && validation.warnings && validation.warnings.length) {
-      lines.push(validation.warnings.map((item) => `Warning: ${escapeHtml(item)}`).join("<br>"));
+      const warnings = uniqueMessages(validation.warnings);
+      const visibleWarnings = warnings.slice(0, 3);
+      lines.push(visibleWarnings.map((item) => `Warning: ${escapeHtml(item)}`).join("<br>"));
+      if (warnings.length > visibleWarnings.length) {
+        lines.push(`${warnings.length - visibleWarnings.length} more warning(s). Check unplaced comments on each page.`);
+      }
     }
     els.toast.innerHTML = lines.join("<br>");
     els.toast.hidden = lines.length === 0;
@@ -599,6 +696,10 @@ REVIEW_CLIENT_JS = r"""
       return [];
     }
     return state.artifact.annotations;
+  }
+
+  function uniqueMessages(messages) {
+    return Array.from(new Set((messages || []).filter(Boolean)));
   }
 
   function pageAnnotations() {
@@ -1457,14 +1558,19 @@ def serve_review(
     handler = make_review_handler(app)
     server = ThreadingHTTPServer((host, port), handler)
     url = f"http://{host}:{server.server_port}/"
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
     if stdout is not None:
-        print(f"Review server: {url}", file=stdout)
-        print("Press Ctrl-C to stop.", file=stdout)
+        print(f"Review server: {url}", file=stdout, flush=True)
+        print("Press Ctrl-C to stop.", file=stdout, flush=True)
     opener(url)
     try:
-        server.serve_forever()
+        while server_thread.is_alive():
+            server_thread.join(0.5)
     except KeyboardInterrupt:
         return 0
     finally:
+        server.shutdown()
         server.server_close()
+        server_thread.join(timeout=2)
     return 0

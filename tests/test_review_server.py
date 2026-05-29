@@ -17,6 +17,7 @@ from md_for_human.review.server import (
     ReviewServerError,
     make_review_handler,
 )
+from md_for_human.review.artifacts import stale_annotations_path, write_text_atomic
 from md_for_human.review.validate import validate_review
 
 
@@ -160,6 +161,26 @@ def test_review_server_valid_saved_artifact_passes_validate_review(
     assert result.annotation_count == 1
 
 
+def test_atomic_text_writes_use_unique_temp_files(tmp_path: Path):
+    path = tmp_path / "review.md"
+    errors: list[BaseException] = []
+
+    def write_content(index: int) -> None:
+        try:
+            write_text_atomic(path, f"content {index}\n")
+        except BaseException as exc:  # pragma: no cover - only fails on race regressions
+            errors.append(exc)
+
+    threads = [threading.Thread(target=write_content, args=(index,)) for index in range(10)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert errors == []
+    assert path.read_text(encoding="utf-8").startswith("content ")
+
+
 def test_review_server_rebuilds_when_source_tree_changes(
     sample_site_copy: Path,
     tmp_path: Path,
@@ -194,6 +215,32 @@ def test_review_server_rebuilds_when_source_tree_changes(
     assert "updated setup steps" in (output_dir / "guide" / "setup.html").read_text(
         encoding="utf-8"
     )
+
+
+def test_review_server_quarantines_stale_annotations_after_source_delete(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    output_dir = tmp_path / "output"
+    build_site(sample_site_copy, output_dir)
+    app = ReviewServerApp(
+        output_dir,
+        token="test-token",
+        source_input=sample_site_copy,
+        source_poll_interval=0,
+        rebuild_debounce=0,
+    )
+    app.save_annotations(token="test-token", artifact=_valid_artifact())
+
+    (sample_site_copy / "guide" / "setup.md").unlink()
+    state = app.get_state(token="test-token")
+
+    assert state["artifact"]["annotations"] == []
+    stale = json.loads(stale_annotations_path(output_dir).read_text(encoding="utf-8"))
+    assert stale["annotations"][0]["id"] == "ann_ui"
+    assert "no longer listed" in stale["annotations"][0]["stale_reason"]
+    result = validate_review(output_dir)
+    assert result.errors == []
 
 
 def test_review_server_rebuild_failure_keeps_last_good_output(
@@ -306,6 +353,8 @@ def test_review_server_injected_ui_uses_inline_comments_without_fixed_rail(
     assert "renderInlineComments" in served
     assert "hasActiveEditor" in served
     assert "if (!preserveEditor) {" in served
+    assert "uniqueMessages" in served
+    assert "Check unplaced comments on each page" in served
     assert "findQuoteRanges" in served
     assert "/state" in served
     assert "locateQuote" in served
