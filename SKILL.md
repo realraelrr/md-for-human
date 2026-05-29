@@ -87,10 +87,12 @@ edit `review.md` manually. Agents should read `review.md` first and use
 `annotations.json` only when they need exact page/source line/quote coordinates.
 
 For v2, each annotation needs only a location and a comment after normalization:
-`id`, `page`, `source_path`, `comment`, `created_at`, `updated_at`, plus either
-`quote` or `scope: "document"`. When a source line location is known, include
-`source_range: {"start_line": N, "end_line": M}` using 1-based closed Markdown
-line numbers; `quote` remains human context, not the primary locator for agents.
+`id`, `page`, `source_path`, `source_range`, `comment`, `created_at`, and
+`updated_at`. Use 1-based closed Markdown line numbers for normal comments, and
+use `source_range: {"start_line": 0, "end_line": 0}` for a whole-document
+comment. `quote` remains human context, not the primary locator for agents.
+Review mode records `source_sha256` automatically and archives old active
+comments when the source Markdown changes.
 Optional hints include `context_before`, `context_after`, `author`, and
 `ui_marker: "underline"`. Do not split edit intent into action fields; write
 deletion, insertion, replacement, and rationale in the natural-language

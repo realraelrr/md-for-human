@@ -347,7 +347,7 @@
         annotation.source_range = state.selectedSourceRange;
       }
     } else {
-      annotation.scope = "document";
+      annotation.source_range = { start_line: 0, end_line: 0 };
     }
     artifact.annotations = annotations
       .filter((item) => item.id !== annotation.id)
@@ -730,7 +730,7 @@
   }
 
   function rowForAnnotation(annotation) {
-    if (annotation.scope === "document") {
+    if (isGlobalAnnotation(annotation)) {
       return firstReviewRow();
     }
     const sourceElement = firstElementForSourceRange(sourceRangeForAnnotation(annotation));
@@ -755,7 +755,7 @@
     }
     if (state.editingId) {
       const annotation = currentAnnotations().find((item) => item.id === state.editingId);
-      if (annotation && annotation.scope === "document") {
+      if (annotation && isGlobalAnnotation(annotation)) {
         return { row: firstReviewRow(), offset: 0 };
       }
       const sourceElement = annotation
@@ -781,7 +781,7 @@
   }
 
   function offsetForAnnotation(annotation, row) {
-    if (annotation.scope === "document") {
+    if (isGlobalAnnotation(annotation)) {
       return 0;
     }
     const marker = firstMarkerForAnnotation(annotation.id);
@@ -804,7 +804,7 @@
     state.editingId = annotation.id;
     state.selectedQuote = annotation.quote || "";
     state.selectedSourceRange = sourceRangeForAnnotation(annotation);
-    state.documentMode = annotation.scope === "document";
+    state.documentMode = isGlobalAnnotation(annotation);
     state.draftComment = annotation.comment || "";
     clearPendingSpans();
     renderAnnotations();
@@ -943,6 +943,9 @@
     if (!Number.isInteger(startLine) || !Number.isInteger(endLine)) {
       return null;
     }
+    if (startLine === 0 && endLine === 0) {
+      return { start_line: 0, end_line: 0 };
+    }
     if (startLine <= 0 || endLine < startLine) {
       return null;
     }
@@ -953,6 +956,9 @@
     if (!sourceRange) {
       return "";
     }
+    if (sourceRange.start_line === 0 && sourceRange.end_line === 0) {
+      return "L0";
+    }
     if (sourceRange.start_line === sourceRange.end_line) {
       return `L${sourceRange.start_line}`;
     }
@@ -960,7 +966,7 @@
   }
 
   function firstElementForSourceRange(sourceRange) {
-    if (!sourceRange) {
+    if (!sourceRange || (sourceRange.start_line === 0 && sourceRange.end_line === 0)) {
       return null;
     }
     const candidates = Array.from(content.querySelectorAll("[data-mdfh-source-lines]"))
@@ -972,6 +978,15 @@
 
   function sourceRangeSpan(sourceRange) {
     return sourceRange ? sourceRange.end_line - sourceRange.start_line : Number.MAX_SAFE_INTEGER;
+  }
+
+  function isGlobalAnnotation(annotation) {
+    const sourceRange = sourceRangeForAnnotation(annotation);
+    return Boolean(
+      annotation &&
+      (annotation.scope === "document" ||
+        (sourceRange && sourceRange.start_line === 0 && sourceRange.end_line === 0))
+    );
   }
 
   function activateCard(annotationId) {

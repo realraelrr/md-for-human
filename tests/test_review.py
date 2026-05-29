@@ -88,7 +88,8 @@ def test_validate_review_accepts_v2_quote_and_document_comments(
     assert "> Run the setup steps here." in summary
     assert "This is too vague; include the exact command and strict check." in summary
     assert "### ann_doc_setup" in summary
-    assert "Scope: document" in summary
+    assert "## guide/setup.md:L0" in summary
+    assert "Global comment" in summary
     assert "type" not in summary.lower()
 
 
@@ -134,6 +135,147 @@ def test_validate_review_v2_summary_prefers_source_line_ranges(
     assert "## guide/setup.md:L5-L7" in summary
     assert "Line numbers still give the agent the primary location." in summary
     assert "ann_stale_quote_line_setup: quote not found in guide/setup.html" in result.warnings
+
+
+def test_validate_review_v2_accepts_l0_global_comment(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    output_dir = tmp_path / "output"
+    build_site(sample_site_copy, output_dir)
+    _write_review_artifact_v2(
+        output_dir,
+        [
+            {
+                "id": "ann_global_setup",
+                "page": "guide/setup.html",
+                "source_path": "guide/setup.md",
+                "source_range": {"start_line": 0, "end_line": 0},
+                "comment": "This page needs a clearer overall narrative.",
+                "created_at": "2026-05-28T12:00:00Z",
+                "updated_at": "2026-05-28T12:00:00Z",
+            },
+        ],
+    )
+
+    result = validate_review(output_dir)
+    summary = (output_dir / ".md-for-human" / "review" / "review.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert result.errors == []
+    assert "## guide/setup.md:L0" in summary
+    assert "Global comment" in summary
+    assert "This page needs a clearer overall narrative." in summary
+
+
+def test_validate_review_v2_rejects_invalid_source_ranges(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    output_dir = tmp_path / "output"
+    build_site(sample_site_copy, output_dir)
+    _write_review_artifact_v2(
+        output_dir,
+        [
+            {
+                "id": "ann_zero_to_one",
+                "page": "guide/setup.html",
+                "source_path": "guide/setup.md",
+                "source_range": {"start_line": 0, "end_line": 1},
+                "comment": "Invalid mixed global range.",
+                "created_at": "2026-05-28T12:00:00Z",
+                "updated_at": "2026-05-28T12:00:00Z",
+            },
+            {
+                "id": "ann_reversed",
+                "page": "guide/setup.html",
+                "source_path": "guide/setup.md",
+                "source_range": {"start_line": 3, "end_line": 2},
+                "comment": "Invalid reversed range.",
+                "created_at": "2026-05-28T12:00:00Z",
+                "updated_at": "2026-05-28T12:00:00Z",
+            },
+            {
+                "id": "ann_bool",
+                "page": "guide/setup.html",
+                "source_path": "guide/setup.md",
+                "source_range": {"start_line": True, "end_line": 2},
+                "comment": "Invalid boolean range.",
+                "created_at": "2026-05-28T12:00:00Z",
+                "updated_at": "2026-05-28T12:00:00Z",
+            },
+            {
+                "id": "ann_non_object",
+                "page": "guide/setup.html",
+                "source_path": "guide/setup.md",
+                "source_range": "1:2",
+                "comment": "Invalid non-object range.",
+                "created_at": "2026-05-28T12:00:00Z",
+                "updated_at": "2026-05-28T12:00:00Z",
+            },
+        ],
+    )
+
+    result = validate_review(output_dir)
+
+    assert (
+        "ann_zero_to_one: source_range must be 0:0 or positive start_line and end_line"
+        in result.errors
+    )
+    assert (
+        "ann_reversed: source_range must be 0:0 or positive start_line and end_line"
+        in result.errors
+    )
+    assert (
+        "ann_bool: source_range must be 0:0 or positive start_line and end_line"
+        in result.errors
+    )
+    assert "ann_non_object: source_range must be an object" in result.errors
+
+
+def test_validate_review_archives_source_hash_mismatch_before_summary(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    output_dir = tmp_path / "output"
+    build_site(sample_site_copy, output_dir)
+    _write_review_artifact_v2(
+        output_dir,
+        [
+            {
+                "id": "ann_old_hash",
+                "page": "guide/setup.html",
+                "source_path": "guide/setup.md",
+                "source_sha256": "0" * 64,
+                "source_range": {"start_line": 5, "end_line": 5},
+                "comment": "Old source feedback.",
+                "created_at": "2026-05-28T12:00:00Z",
+                "updated_at": "2026-05-28T12:00:00Z",
+            },
+        ],
+    )
+
+    result = validate_review(output_dir)
+    artifact = json.loads(
+        (output_dir / ".md-for-human" / "review" / "annotations.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    archive = json.loads(
+        (output_dir / ".md-for-human" / "review" / "archive.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    summary = (output_dir / ".md-for-human" / "review" / "review.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert result.errors == []
+    assert artifact["annotations"] == []
+    assert archive["annotations"][0]["id"] == "ann_old_hash"
+    assert archive["annotations"][0]["archive_reason"] == "source_changed"
+    assert "ann_old_hash" not in summary
 
 
 def test_validate_review_v2_does_not_require_action_fields(
@@ -194,12 +336,12 @@ def test_validate_review_v2_requires_comment_and_target(
 
     assert "ann_missing_comment: required field comment must be a non-empty string" in result.errors
     assert (
-        'ann_missing_target: annotation must include quote or scope "document"'
+        'ann_missing_target: annotation must include quote, source_range, or scope "document"'
         in result.errors
     )
 
 
-def test_validate_review_v2_rejects_synthetic_landing_page_target(
+def test_validate_review_v2_archives_synthetic_landing_page_target(
     sample_site_copy: Path,
     tmp_path: Path,
 ):
@@ -222,10 +364,21 @@ def test_validate_review_v2_rejects_synthetic_landing_page_target(
     )
 
     result = validate_review(output_dir)
+    artifact = json.loads(
+        (output_dir / ".md-for-human" / "review" / "annotations.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    archive = json.loads(
+        (output_dir / ".md-for-human" / "review" / "archive.json").read_text(
+            encoding="utf-8"
+        )
+    )
 
-    assert result.errors == [
-        'ann_synthetic: page "index.html" is not listed in manifest documents'
-    ]
+    assert result.errors == []
+    assert artifact["annotations"] == []
+    assert archive["annotations"][0]["id"] == "ann_synthetic"
+    assert archive["annotations"][0]["archive_reason"] == "source_removed"
 
 
 def test_validate_review_accepts_valid_artifact_and_generates_summary(

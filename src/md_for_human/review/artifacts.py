@@ -11,6 +11,7 @@ from md_for_human.review import SCHEMA_VERSION
 REVIEW_DIR = Path(".md-for-human") / "review"
 ANNOTATIONS_FILE = "annotations.json"
 SUMMARY_FILE = "review.md"
+ARCHIVE_FILE = "archive.json"
 STALE_ANNOTATIONS_FILE = "stale-annotations.json"
 
 
@@ -28,6 +29,10 @@ def summary_path(output_dir: Path) -> Path:
 
 def stale_annotations_path(output_dir: Path) -> Path:
     return review_dir(output_dir) / STALE_ANNOTATIONS_FILE
+
+
+def archive_path(output_dir: Path) -> Path:
+    return review_dir(output_dir) / ARCHIVE_FILE
 
 
 def empty_artifact() -> dict[str, Any]:

@@ -19,7 +19,7 @@ from md_for_human.review.server import (
     make_review_handler,
 )
 from md_for_human.review.artifacts import (
-    stale_annotations_path,
+    archive_path,
     write_json_atomic,
     write_text_atomic,
 )
@@ -100,6 +100,34 @@ def test_review_server_rejects_hard_failures_before_writing(
     assert "is not listed in manifest documents" in "\n".join(exc_info.value.errors)
     assert artifact_path.read_text(encoding="utf-8") == original
     assert not (output_dir / ".md-for-human" / "review" / "review.md").exists()
+
+
+def test_review_server_rejects_invalid_save_before_writing_archive(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    output_dir = tmp_path / "output"
+    build_site(sample_site_copy, output_dir)
+    app = ReviewServerApp(output_dir, token="test-token")
+    artifact_path = output_dir / ".md-for-human" / "review" / "annotations.json"
+    original = artifact_path.read_text(encoding="utf-8") if artifact_path.exists() else ""
+    artifact = _valid_artifact()
+    annotations = artifact["annotations"]
+    assert isinstance(annotations, list)
+    stale_annotation = dict(annotations[0])
+    stale_annotation["id"] = "ann_old"
+    stale_annotation["source_sha256"] = "0" * 64
+    invalid_annotation = dict(annotations[0])
+    invalid_annotation["id"] = "ann_invalid"
+    invalid_annotation.pop("comment")
+    annotations[:] = [stale_annotation, invalid_annotation]
+
+    with pytest.raises(ReviewServerError) as exc_info:
+        app.save_annotations(token="test-token", artifact=artifact)
+
+    assert "required field comment" in "\n".join(exc_info.value.errors)
+    assert artifact_path.read_text(encoding="utf-8") == original
+    assert not archive_path(output_dir).exists()
 
 
 def test_review_server_rejects_legacy_schema_on_save(
@@ -221,7 +249,97 @@ def test_review_server_saves_source_range_and_generates_line_summary(
         encoding="utf-8"
     )
     assert saved_annotations[0]["source_range"] == {"start_line": 5, "end_line": 5}
+    assert isinstance(saved_annotations[0]["source_sha256"], str)
     assert "## guide/setup.md:L5" in summary
+
+
+def test_review_server_normalizes_document_comment_to_l0_source_range(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    output_dir = tmp_path / "output"
+    build_site(sample_site_copy, output_dir)
+    app = ReviewServerApp(output_dir, token="test-token")
+    artifact = _valid_artifact()
+    annotations = artifact["annotations"]
+    assert isinstance(annotations, list)
+    annotations[0].pop("quote")
+    annotations[0]["scope"] = "document"
+
+    response = app.save_annotations(token="test-token", artifact=artifact)
+    saved_annotations = response["artifact"]["annotations"]
+    assert isinstance(saved_annotations, list)
+    saved = saved_annotations[0]
+
+    assert saved["source_range"] == {"start_line": 0, "end_line": 0}
+    assert "scope" not in saved
+    assert isinstance(saved["source_sha256"], str)
+    summary = (output_dir / ".md-for-human" / "review" / "review.md").read_text(
+        encoding="utf-8"
+    )
+    assert "## guide/setup.md:L0" in summary
+    assert "Global comment" in summary
+
+
+def test_review_server_archives_annotations_after_source_hash_change(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    output_dir = tmp_path / "output"
+    build_site(sample_site_copy, output_dir)
+    app = ReviewServerApp(
+        output_dir,
+        token="test-token",
+        source_input=sample_site_copy,
+        source_poll_interval=0,
+        rebuild_debounce=0,
+    )
+    app.save_annotations(token="test-token", artifact=_valid_artifact())
+
+    (sample_site_copy / "guide" / "setup.md").write_text(
+        "# Setup\n\n## Install\n\nRun the changed setup steps here.\n",
+        encoding="utf-8",
+    )
+    state = app.get_state(token="test-token")
+
+    assert state["artifact"]["annotations"] == []
+    archive = json.loads(archive_path(output_dir).read_text(encoding="utf-8"))
+    archived = archive["annotations"][0]
+    assert archived["id"] == "ann_ui"
+    assert archived["archive_reason"] == "source_changed"
+    assert archived["current_source_sha256"] != archived["source_sha256"]
+    summary = (output_dir / ".md-for-human" / "review" / "review.md").read_text(
+        encoding="utf-8"
+    )
+    assert "ann_ui" not in summary
+
+
+def test_review_server_save_archives_stale_annotations_without_dropping_them(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    output_dir = tmp_path / "output"
+    build_site(sample_site_copy, output_dir)
+    app = ReviewServerApp(output_dir, token="test-token")
+    artifact = _valid_artifact()
+    annotations = artifact["annotations"]
+    assert isinstance(annotations, list)
+    stale_annotation = dict(annotations[0])
+    stale_annotation["id"] = "ann_old"
+    stale_annotation["source_sha256"] = "0" * 64
+    active_annotation = dict(annotations[0])
+    active_annotation["id"] = "ann_new"
+    annotations[:] = [stale_annotation, active_annotation]
+
+    response = app.save_annotations(token="test-token", artifact=artifact)
+
+    saved_annotations = response["artifact"]["annotations"]
+    assert isinstance(saved_annotations, list)
+    assert [item["id"] for item in saved_annotations] == ["ann_new"]
+    archive = json.loads(archive_path(output_dir).read_text(encoding="utf-8"))
+    archived = archive["annotations"][0]
+    assert archived["id"] == "ann_old"
+    assert archived["archive_reason"] == "source_changed"
 
 
 def test_atomic_text_writes_use_unique_temp_files(tmp_path: Path):
@@ -280,7 +398,7 @@ def test_review_server_rebuilds_when_source_tree_changes(
     )
 
 
-def test_review_server_quarantines_stale_annotations_after_source_delete(
+def test_review_server_archives_annotations_after_source_delete(
     sample_site_copy: Path,
     tmp_path: Path,
 ):
@@ -299,14 +417,15 @@ def test_review_server_quarantines_stale_annotations_after_source_delete(
     state = app.get_state(token="test-token")
 
     assert state["artifact"]["annotations"] == []
-    stale = json.loads(stale_annotations_path(output_dir).read_text(encoding="utf-8"))
-    assert stale["annotations"][0]["id"] == "ann_ui"
-    assert "no longer listed" in stale["annotations"][0]["stale_reason"]
+    archive = json.loads(archive_path(output_dir).read_text(encoding="utf-8"))
+    archived = archive["annotations"][0]
+    assert archived["id"] == "ann_ui"
+    assert archived["archive_reason"] == "source_removed"
     result = validate_review(output_dir)
     assert result.errors == []
 
 
-def test_review_server_quarantines_stale_annotations_after_source_path_mismatch(
+def test_review_server_archives_annotations_after_source_path_mismatch(
     sample_site_copy: Path,
     tmp_path: Path,
 ):
@@ -325,9 +444,10 @@ def test_review_server_quarantines_stale_annotations_after_source_path_mismatch(
     state = app.get_state(token="test-token")
 
     assert state["artifact"]["annotations"] == []
-    stale = json.loads(stale_annotations_path(output_dir).read_text(encoding="utf-8"))
-    assert stale["annotations"][0]["id"] == "ann_ui"
-    assert "no longer matches manifest source_path" in stale["annotations"][0]["stale_reason"]
+    archive = json.loads(archive_path(output_dir).read_text(encoding="utf-8"))
+    archived = archive["annotations"][0]
+    assert archived["id"] == "ann_ui"
+    assert archived["archive_reason"] == "source_path_changed"
     result = validate_review(output_dir)
     assert result.errors == []
 
@@ -570,6 +690,8 @@ def test_review_server_injected_ui_uses_inline_comments_without_fixed_rail(
     assert 'request("/annotations"' in served
     assert "data-mdfh-source-lines" in served
     assert "annotation.source_range" in served
+    assert "source_range = { start_line: 0, end_line: 0 }" in served
+    assert "isGlobalAnnotation" in served
     assert "data-mdfh-review-rail" not in served
     assert "data-mdfh-review-connector-layer" not in served
     assert "suggest_insert" not in served

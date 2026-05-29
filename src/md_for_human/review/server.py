@@ -13,6 +13,7 @@ from urllib.parse import unquote, urlsplit
 
 from md_for_human.review import SCHEMA_VERSION
 from md_for_human.builder import build_site_preserving_review
+from md_for_human.review.archive import append_archived_annotations, split_inactive_annotations
 from md_for_human.review.client_assets import inject_review_client
 from md_for_human.review.constants import LOCAL_REVIEW_HOST, REVIEW_API_PREFIX, TOKEN_HEADER
 from md_for_human.review.artifacts import (
@@ -22,7 +23,7 @@ from md_for_human.review.artifacts import (
     write_json_atomic,
 )
 from md_for_human.review.locators import add_locator_metadata
-from md_for_human.review.source_watch import snapshot_source_tree, stale_annotation_reason
+from md_for_human.review.source_watch import snapshot_source_tree
 from md_for_human.review.summary import write_review_summary
 from md_for_human.review.validate import (
     ReviewValidationResult,
@@ -32,6 +33,7 @@ from md_for_human.review.validate import (
     validate_review,
     validate_review_artifact,
 )
+
 
 class ReviewServerError(RuntimeError):
     def __init__(
@@ -108,13 +110,20 @@ class ReviewServerApp:
                 "review server writes only mdfh-review-v2 artifacts",
                 errors=["annotations.json: browser review writes only mdfh-review-v2"],
             )
-        result = validate_review_artifact(self.output_dir, artifact, write_summary=False)
+        normalized_artifact = self._normalize_review_artifact(artifact)
+        documents = self._manifest_documents_for_archive()
+        writable_artifact, archived_annotations = split_inactive_annotations(
+            normalized_artifact,
+            documents,
+        )
+        result = validate_review_artifact(self.output_dir, writable_artifact, write_summary=False)
         if result.errors:
             raise ReviewServerError(
                 "review artifact has hard validation errors",
                 errors=result.errors,
             )
-        writable_artifact = add_locator_metadata(self.output_dir, artifact)
+        writable_artifact = add_locator_metadata(self.output_dir, writable_artifact)
+        append_archived_annotations(self.output_dir, archived_annotations)
         write_json_atomic(annotations_path(self.output_dir), writable_artifact)
         summary_path = write_review_summary(self.output_dir, writable_artifact)
         validation = browser_save_validation_payload(result)
@@ -167,10 +176,15 @@ class ReviewServerApp:
         loaded_artifact = load_json_file(path, errors)
         if not isinstance(loaded_artifact, dict):
             raise ReviewServerError("annotations.json is invalid", errors=errors)
-        active_artifact = self._quarantine_stale_annotations(loaded_artifact)
+        active_artifact = self._archive_inactive_annotations(
+            self._normalize_review_artifact(loaded_artifact)
+        )
+        if active_artifact != loaded_artifact:
+            write_json_atomic(annotations_path(self.output_dir), active_artifact)
+            write_review_summary(self.output_dir, active_artifact)
         return self._refresh_locator_metadata(active_artifact)
 
-    def _quarantine_stale_annotations(self, artifact: dict[str, Any]) -> dict[str, Any]:
+    def _normalize_review_artifact(self, artifact: dict[str, Any]) -> dict[str, Any]:
         if artifact.get("schema_version") != SCHEMA_VERSION:
             return artifact
         annotations = artifact.get("annotations")
@@ -183,28 +197,71 @@ class ReviewServerApp:
         if manifest_errors:
             return artifact
 
-        active_annotations: list[Any] = []
-        stale_annotations: list[dict[str, Any]] = []
+        normalized_artifact = dict(artifact)
+        normalized_annotations: list[Any] = []
+        changed = False
         for annotation in annotations:
             if not isinstance(annotation, dict):
-                active_annotations.append(annotation)
+                normalized_annotations.append(annotation)
                 continue
-            stale_reason = stale_annotation_reason(annotation, documents)
-            if stale_reason is None:
-                active_annotations.append(annotation)
-                continue
-            stale_item = dict(annotation)
-            stale_item["stale_reason"] = stale_reason
-            stale_annotations.append(stale_item)
+            normalized = dict(annotation)
+            page = normalized.get("page")
+            document = documents.get(page) if isinstance(page, str) else None
+            if normalized.get("scope") == "document" and "source_range" not in normalized:
+                normalized["source_range"] = {"start_line": 0, "end_line": 0}
+                normalized.pop("scope", None)
+            if document is not None and "source_sha256" not in normalized:
+                normalized["source_sha256"] = document.source_sha256
+            if normalized != annotation:
+                changed = True
+            normalized_annotations.append(normalized)
+        if changed:
+            normalized_artifact["annotations"] = normalized_annotations
+        return normalized_artifact
 
-        if not stale_annotations:
+    def _archive_inactive_annotations(
+        self,
+        artifact: dict[str, Any],
+        *,
+        write_updates: bool = True,
+        write_archive: bool = True,
+    ) -> dict[str, Any]:
+        if artifact.get("schema_version") != SCHEMA_VERSION:
+            return artifact
+        annotations = artifact.get("annotations")
+        if not isinstance(annotations, list):
             return artifact
 
-        cleaned_artifact = dict(artifact)
-        cleaned_artifact["annotations"] = active_annotations
-        write_json_atomic(annotations_path(self.output_dir), cleaned_artifact)
-        self._append_stale_annotations(stale_annotations)
+        manifest_errors: list[str] = []
+        manifest = load_json_file(self.manifest_path, manifest_errors)
+        documents = parse_manifest_documents(manifest, manifest_errors)
+        if manifest_errors:
+            return artifact
+
+        cleaned_artifact, archived_annotations = split_inactive_annotations(artifact, documents)
+        if not archived_annotations and cleaned_artifact == artifact:
+            return artifact
+
+        if write_updates:
+            # Prefer no data loss across the two-file update: archive first, then
+            # remove from active annotations.
+            append_archived_annotations(self.output_dir, archived_annotations)
+            write_json_atomic(annotations_path(self.output_dir), cleaned_artifact)
+            write_review_summary(self.output_dir, cleaned_artifact)
+        elif write_archive and archived_annotations:
+            append_archived_annotations(self.output_dir, archived_annotations)
         return cleaned_artifact
+
+    def _manifest_documents_for_archive(self) -> dict[str, Any]:
+        manifest_errors: list[str] = []
+        manifest = load_json_file(self.manifest_path, manifest_errors)
+        documents = parse_manifest_documents(manifest, manifest_errors)
+        if manifest_errors:
+            raise ReviewServerError(
+                "manifest.json is invalid",
+                errors=manifest_errors,
+            )
+        return documents
 
     def _append_stale_annotations(self, stale_annotations: list[dict[str, Any]]) -> None:
         path = stale_annotations_path(self.output_dir)

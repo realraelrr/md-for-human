@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from md_for_human.review.validate import is_safe_relative_posix_path
+from md_for_human.review.archive import archive_annotation_status
 
 
 def snapshot_source_tree(source_input: Path) -> dict[str, tuple[int, int]]:
@@ -30,20 +30,17 @@ def stale_annotation_reason(
     annotation: dict[str, Any],
     documents: dict[str, Any],
 ) -> str | None:
-    page = annotation.get("page")
-    source_path = annotation.get("source_path")
-    if not isinstance(page, str) or not is_safe_relative_posix_path(page):
-        return None
-    if source_path is not None and (
-        not isinstance(source_path, str) or not is_safe_relative_posix_path(source_path)
-    ):
-        return None
-    document = documents.get(page)
-    if document is None:
+    archive_reason, _current_source_sha256 = archive_annotation_status(annotation, documents)
+    if archive_reason == "source_removed":
+        page = annotation.get("page")
         return f'page "{page}" is no longer listed in manifest documents'
-    if isinstance(source_path, str) and source_path != document.source_path:
+    if archive_reason == "source_path_changed":
+        page = annotation.get("page")
+        source_path = annotation.get("source_path")
+        document = documents.get(page) if isinstance(page, str) else None
+        expected_source_path = document.source_path if document is not None else ""
         return (
             f'source_path "{source_path}" no longer matches manifest source_path '
-            f'"{document.source_path}" for page "{page}"'
+            f'"{expected_source_path}" for page "{page}"'
         )
     return None

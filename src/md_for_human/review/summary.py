@@ -105,8 +105,10 @@ def render_annotation_v2(annotation: dict[str, Any]) -> list[str]:
 
     if quote:
         lines.extend([blockquote(quote), ""])
-    elif annotation.get("scope") == "document":
-        lines.extend(["Scope: document", ""])
+    if is_global_comment(annotation):
+        lines.extend(["Global comment", ""])
+    elif not quote and annotation.get("scope") == "document":
+        lines.extend(["Global comment", ""])
 
     lines.extend([string_value(annotation.get("comment")), ""])
     return lines
@@ -117,6 +119,8 @@ def source_location_label(annotation: dict[str, Any]) -> str:
     page = string_value(annotation.get("page"), fallback="unknown")
     base = source_path or page
     line_label = source_line_label(annotation.get("source_range"))
+    if not line_label and annotation.get("scope") == "document":
+        line_label = "L0"
     if line_label:
         return f"{base}:{line_label}"
     return base
@@ -129,11 +133,22 @@ def source_line_label(value: object) -> str:
     end_line = value.get("end_line")
     if not isinstance(start_line, int) or not isinstance(end_line, int):
         return ""
+    if start_line == 0 and end_line == 0:
+        return "L0"
     if start_line <= 0 or end_line < start_line:
         return ""
     if start_line == end_line:
         return f"L{start_line}"
     return f"L{start_line}-L{end_line}"
+
+
+def is_global_comment(annotation: dict[str, Any]) -> bool:
+    source_range = annotation.get("source_range")
+    return (
+        isinstance(source_range, dict)
+        and source_range.get("start_line") == 0
+        and source_range.get("end_line") == 0
+    )
 
 
 def render_annotation_v1(annotation: dict[str, Any]) -> list[str]:

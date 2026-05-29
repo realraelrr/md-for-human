@@ -10,7 +10,8 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from md_for_human.review import SCHEMA_VERSION_V1, SCHEMA_VERSION_V2, SUPPORTED_SCHEMA_VERSIONS
-from md_for_human.review.artifacts import annotations_path
+from md_for_human.review.archive import append_archived_annotations, split_inactive_annotations
+from md_for_human.review.artifacts import annotations_path, write_json_atomic
 from md_for_human.review.summary import write_review_summary
 
 ALLOWED_TYPES = {"comment", "suggest_delete", "suggest_insert", "suggest_replace"}
@@ -75,6 +76,12 @@ def validate_review(output_dir: Path) -> ReviewValidationResult:
     artifact = load_json_file(artifact_path, errors)
     if artifact is None:
         return ReviewValidationResult(errors, warnings, 0, 0, None)
+    if isinstance(artifact, dict):
+        cleaned_artifact, archived_annotations = split_inactive_annotations(artifact, documents)
+        if cleaned_artifact != artifact or archived_annotations:
+            append_archived_annotations(output_dir, archived_annotations)
+            write_json_atomic(artifact_path, cleaned_artifact)
+            artifact = cleaned_artifact
 
     return validate_review_artifact(
         output_dir,
@@ -312,17 +319,19 @@ def validate_annotation_fields_v2(
 
     quote = string_field(annotation, "quote")
     scope = string_field(annotation, "scope")
-    if not quote and scope != "document":
-        errors.append(f'{annotation_id}: annotation must include quote or scope "document"')
-    validate_source_range(annotation.get("source_range"), annotation_id, errors)
+    has_source_range = validate_source_range(annotation.get("source_range"), annotation_id, errors)
+    if not quote and scope != "document" and not has_source_range:
+        errors.append(
+            f'{annotation_id}: annotation must include quote, source_range, or scope "document"'
+        )
 
 
-def validate_source_range(value: object, annotation_id: str, errors: list[str]) -> None:
+def validate_source_range(value: object, annotation_id: str, errors: list[str]) -> bool:
     if value is None:
-        return
+        return False
     if not isinstance(value, dict):
         errors.append(f"{annotation_id}: source_range must be an object")
-        return
+        return False
     start_line = value.get("start_line")
     end_line = value.get("end_line")
     if (
@@ -330,12 +339,15 @@ def validate_source_range(value: object, annotation_id: str, errors: list[str]) 
         or isinstance(start_line, bool)
         or not isinstance(end_line, int)
         or isinstance(end_line, bool)
-        or start_line <= 0
+        or start_line < 0
         or end_line < start_line
+        or (start_line == 0 and end_line != 0)
     ):
         errors.append(
-            f"{annotation_id}: source_range must include positive start_line and end_line"
+            f"{annotation_id}: source_range must be 0:0 or positive start_line and end_line"
         )
+        return False
+    return True
 
 
 def validate_quote(

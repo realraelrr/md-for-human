@@ -138,11 +138,13 @@ The v2 protocol is intentionally small: each annotation records a location and a
 free-text comment. The primary location for agents is
 `source_path + source_range`, where `source_range` stores 1-based closed Markdown
 line numbers. `quote` is still stored as human-readable context and for browser
-underline recovery, but it is not the core locator. Whole-page comments use
-`scope: "document"`. Deletions, insertions, replacements, and rationale all
-belong in the natural-language `comment`. Legacy v1 artifacts remain validatable
-for read-only compatibility, but new browser and agent workflows write
-`mdfh-review-v2`.
+underline recovery, but it is not the core locator. Whole-page comments use the
+reserved range `source_range: {"start_line": 0, "end_line": 0}`. Each saved
+annotation also records the current source SHA so review mode can archive old
+comments after the source Markdown changes. Deletions, insertions, replacements,
+and rationale all belong in the natural-language `comment`. Legacy v1 artifacts
+remain validatable for read-only compatibility, but new browser and agent
+workflows write `mdfh-review-v2`.
 
 Validate review artifacts with:
 
@@ -177,6 +179,9 @@ blocks carry `data-mdfh-source-lines`, letting the browser save the selected
 Markdown line range. The server rejects schema, page, and source-path hard
 failures before writing. Missing or repeated quote anchors are saved as
 diagnostics so the communication artifact remains available for agent handoff.
+When a reviewed Markdown source changes, active comments for the previous source
+hash move to `.md-for-human/review/archive.json` and are removed from the active
+`review.md`.
 
 ## Agent Skill
 
