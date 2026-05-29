@@ -130,14 +130,14 @@ class ReviewServerApp:
         self._ensure_artifact()
         return {"validation": validation_payload(validate_review(self.output_dir))}
 
-    def render_site_file(self, relative_url_path: str) -> str:
+    def render_site_file(self, relative_url_path: str, *, nonce: str) -> str:
         self._maybe_rebuild()
         relative_path = self._site_path_from_url(relative_url_path)
         path = self._resolve_site_path(relative_path)
         if path.suffix.lower() != ".html":
             raise ReviewServerError(f"not an HTML page: {relative_path.as_posix()}")
         html = path.read_text(encoding="utf-8")
-        return inject_review_client(html, self.token)
+        return inject_review_client(html, self.token, nonce=nonce)
 
     def read_static_file(self, relative_url_path: str) -> tuple[bytes, str]:
         self._maybe_rebuild()
@@ -346,6 +346,23 @@ def content_type_for_path(path: Path) -> str:
     return "application/octet-stream"
 
 
+def review_content_security_policy(nonce: str) -> str:
+    return "; ".join(
+        [
+            "default-src 'none'",
+            f"script-src 'nonce-{nonce}'",
+            f"style-src 'nonce-{nonce}'",
+            "img-src 'self' data: blob: http: https:",
+            "font-src 'self' data:",
+            "connect-src 'self'",
+            "object-src 'none'",
+            "base-uri 'none'",
+            "form-action 'none'",
+            "frame-ancestors 'none'",
+        ]
+    )
+
+
 def make_review_handler(app: ReviewServerApp) -> type[BaseHTTPRequestHandler]:
     class ReviewRequestHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
@@ -383,8 +400,13 @@ def make_review_handler(app: ReviewServerApp) -> type[BaseHTTPRequestHandler]:
         def _handle_static(self) -> None:
             try:
                 if urlsplit(self.path).path.lower().endswith(".html") or self.path in {"", "/"}:
-                    body = app.render_site_file(self.path).encode("utf-8")
-                    self._send_bytes(body, "text/html; charset=utf-8")
+                    nonce = secrets.token_urlsafe(16)
+                    body = app.render_site_file(self.path, nonce=nonce).encode("utf-8")
+                    self._send_bytes(
+                        body,
+                        "text/html; charset=utf-8",
+                        content_security_policy=review_content_security_policy(nonce),
+                    )
                     return
                 body, content_type = app.read_static_file(self.path)
                 self._send_bytes(body, content_type)
@@ -433,11 +455,14 @@ def make_review_handler(app: ReviewServerApp) -> type[BaseHTTPRequestHandler]:
             content_type: str,
             *,
             status: HTTPStatus = HTTPStatus.OK,
+            content_security_policy: str | None = None,
         ) -> None:
             self.send_response(status.value)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
+            if content_security_policy is not None:
+                self.send_header("Content-Security-Policy", content_security_policy)
             self.end_headers()
             self.wfile.write(body)
 

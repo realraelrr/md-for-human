@@ -128,6 +128,7 @@ def main(
         return build_and_serve_review_output(
             Path(args.input_path),
             output_arg=review_output_arg,
+            overwrite=args.overwrite,
             opener=opener,
             stdout=stdout,
             stderr=stderr,
@@ -289,14 +290,20 @@ def build_and_serve_review_output(
     input_path: Path,
     *,
     output_arg: str | None,
+    overwrite: bool,
     opener: Callable[[str], object],
     stdout: TextIO,
     stderr: TextIO,
 ) -> int:
     try:
         resolved_input = validate_input_path(input_path)
-        output_dir, _custom_output = determine_output_dir(resolved_input, output_arg)
+        output_dir, custom_output = determine_output_dir(resolved_input, output_arg)
         validate_output_location(resolved_input, output_dir)
+        if custom_output and (output_dir.exists() or output_dir.is_symlink()) and not overwrite:
+            raise CliError(
+                f"Custom output directory already exists: {output_dir}. "
+                "Use --overwrite to replace it."
+            )
         build_site_preserving_review(resolved_input, output_dir)
         resolved_output_dir = validate_review_output_dir(output_dir)
         return serve_review(

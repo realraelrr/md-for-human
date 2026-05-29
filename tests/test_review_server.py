@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -23,6 +24,7 @@ from md_for_human.review.artifacts import (
     write_text_atomic,
 )
 from md_for_human.review.validate import validate_review
+from md_for_human.static_assets import BASE_CSS, BASE_JS
 
 
 def _valid_artifact() -> dict[str, object]:
@@ -369,7 +371,7 @@ def test_review_server_injects_client_without_modifying_html(
     original_html = html_path.read_text(encoding="utf-8")
     app = ReviewServerApp(output_dir, token="test-token")
 
-    served = app.render_site_file("guide/setup.html")
+    served = app.render_site_file("guide/setup.html", nonce="test-nonce")
 
     assert REVIEW_API_PREFIX in served
     assert "data-mdfh-review-unplaced" in served
@@ -386,9 +388,9 @@ def test_review_server_static_path_stays_inside_output_dir(
     app = ReviewServerApp(output_dir, token="test-token")
 
     with pytest.raises(ReviewServerError):
-        app.render_site_file("../secret.html")
+        app.render_site_file("../secret.html", nonce="test-nonce")
     with pytest.raises(ReviewServerError):
-        app.render_site_file("/etc/passwd")
+        app.render_site_file("/etc/passwd", nonce="test-nonce")
 
 
 def test_review_server_http_api_requires_token_and_does_not_enable_cors(
@@ -421,6 +423,134 @@ def test_review_server_http_api_requires_token_and_does_not_enable_cors(
         thread.join(timeout=2)
 
 
+def test_review_server_html_response_adds_csp_nonce_without_affecting_api_or_assets(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    output_dir = tmp_path / "output"
+    build_site(sample_site_copy, output_dir)
+    app = ReviewServerApp(output_dir, token="test-token")
+    server = ThreadingHTTPServer(("127.0.0.1", 0), make_review_handler(app))
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        html_response = urlopen(
+            f"http://127.0.0.1:{server.server_port}/guide/setup.html",
+            timeout=2,
+        )
+        html = html_response.read().decode("utf-8")
+        csp = html_response.headers.get("Content-Security-Policy")
+        assert csp is not None
+        assert "script-src 'nonce-" in csp
+        assert "style-src 'nonce-" in csp
+        assert "connect-src 'self'" in csp
+        assert "object-src 'none'" in csp
+        assert "'unsafe-inline'" not in csp
+        nonce_match = re.search(r"'nonce-([^']+)'", csp)
+        assert nonce_match is not None
+        assert f'nonce="{nonce_match.group(1)}"' in html
+
+        api_request = Request(
+            f"http://127.0.0.1:{server.server_port}{REVIEW_API_PREFIX}/state",
+            headers={"X-MDFH-Review-Token": "test-token"},
+        )
+        api_response = urlopen(api_request, timeout=2)
+        assert api_response.status == 200
+        assert api_response.headers.get("Content-Security-Policy") is None
+
+        asset_response = urlopen(
+            f"http://127.0.0.1:{server.server_port}/images/diagram.png",
+            timeout=2,
+        )
+        assert asset_response.status == 200
+        assert asset_response.headers.get("Content-Security-Policy") is None
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_review_server_nonce_only_marks_owned_inline_assets(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    (sample_site_copy / "guide" / "setup.md").write_text(
+        "\n".join(
+            [
+                "# Setup",
+                "",
+                '<script data-mdfh-base-script>window.mdfhSpoofed = true;</script>',
+                '<script>window.mdfhPwned = true;</script>',
+                '<style data-mdfh-base-style>.spoofed { color: red; }</style>',
+                '<button onclick="window.mdfhClicked = true">Click</button>',
+                '<a href="javascript:window.mdfhLink = true">JS link</a>',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "output"
+    build_site(sample_site_copy, output_dir)
+    html_path = output_dir / "guide" / "setup.html"
+    original_html = html_path.read_text(encoding="utf-8")
+    app = ReviewServerApp(output_dir, token="test-token")
+
+    served = app.render_site_file("guide/setup.html", nonce="fixed-nonce")
+
+    assert '<style data-mdfh-base-style nonce="fixed-nonce">:root' in served
+    assert '<script data-mdfh-base-script nonce="fixed-nonce">document.addEventListener' in served
+    assert '<style data-mdfh-review-style nonce="fixed-nonce">' in served
+    assert '<script data-mdfh-review-script nonce="fixed-nonce">' in served
+    assert '<script data-mdfh-base-script>window.mdfhSpoofed = true;</script>' in served
+    assert '<script>window.mdfhPwned = true;</script>' in served
+    assert '<style data-mdfh-base-style>.spoofed { color: red; }</style>' in served
+    assert '<button onclick="window.mdfhClicked = true">Click</button>' in served
+    assert '<a href="javascript:window.mdfhLink = true">JS link</a>' in served
+    assert html_path.read_text(encoding="utf-8") == original_html
+
+
+def test_review_server_legacy_output_does_not_nonce_spoofed_markers(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    (sample_site_copy / "guide" / "setup.md").write_text(
+        "\n".join(
+            [
+                "# Setup",
+                "",
+                '<script data-mdfh-base-script>window.mdfhSpoofed = true;</script>',
+                '<style data-mdfh-base-style>.spoofed { color: red; }</style>',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "output"
+    build_site(sample_site_copy, output_dir)
+    html_path = output_dir / "guide" / "setup.html"
+    legacy_html = (
+        html_path.read_text(encoding="utf-8")
+        .replace(
+            f"<style data-mdfh-base-style>{BASE_CSS}</style>",
+            f"<style>{BASE_CSS}</style>",
+        )
+        .replace(
+            f"<script data-mdfh-base-script>{BASE_JS}</script>",
+            f"<script>{BASE_JS}</script>",
+        )
+    )
+    html_path.write_text(legacy_html, encoding="utf-8")
+    app = ReviewServerApp(output_dir, token="test-token")
+
+    served = app.render_site_file("guide/setup.html", nonce="fixed-nonce")
+
+    assert '<style nonce="fixed-nonce">:root' in served
+    assert '<script nonce="fixed-nonce">document.addEventListener' in served
+    assert '<script data-mdfh-base-script>window.mdfhSpoofed = true;</script>' in served
+    assert '<style data-mdfh-base-style>.spoofed { color: red; }</style>' in served
+
+
 def test_review_server_injected_ui_uses_inline_comments_without_fixed_rail(
     sample_site_copy: Path,
     tmp_path: Path,
@@ -429,10 +559,10 @@ def test_review_server_injected_ui_uses_inline_comments_without_fixed_rail(
     build_site(sample_site_copy, output_dir)
     app = ReviewServerApp(output_dir, token="test-token")
 
-    served = app.render_site_file("guide/setup.html")
+    served = app.render_site_file("guide/setup.html", nonce="test-nonce")
 
     assert served.count("data-mdfh-review-style") == 1
-    assert "<script>" in served
+    assert '<script data-mdfh-review-script nonce="test-nonce">' in served
     assert "data-mdfh-review-unplaced" in served
     assert "data-mdfh-review-comment-input" in served
     assert "X-MDFH-Review-Token" in served

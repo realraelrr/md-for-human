@@ -28,8 +28,8 @@ def test_render_page_html_builds_full_shell_with_inline_assets_and_active_nav(
     html = render_page_html(intro_page, nav_tree, rendered_pages)
 
     assert html.startswith("<!DOCTYPE html>")
-    assert "<style>" in html
-    assert "<script>" in html
+    assert '<style data-mdfh-base-style>' in html
+    assert '<script data-mdfh-base-script>' in html
     assert "prefers-color-scheme: light" in html
     assert "data-sidebar-toggle" in html
     assert 'aria-current="page"' in html

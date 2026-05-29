@@ -594,6 +594,7 @@ def test_main_build_integrated_review_builds_then_serves_with_source_watch(
     monkeypatch: pytest.MonkeyPatch,
 ):
     output_dir = tmp_path / "output"
+    output_dir.mkdir()
     built: list[tuple[Path, Path]] = []
     served: list[tuple[Path, Path | None]] = []
 
@@ -622,7 +623,7 @@ def test_main_build_integrated_review_builds_then_serves_with_source_watch(
     monkeypatch.setattr("md_for_human.cli.serve_review", fake_serve_review)
 
     result = main(
-        [str(sample_site_copy), "--output", str(output_dir), "--review"],
+        [str(sample_site_copy), "--output", str(output_dir), "--review", "--overwrite"],
         opener=lambda *_: None,
         stdout=io.StringIO(),
         stderr=io.StringIO(),
@@ -631,6 +632,41 @@ def test_main_build_integrated_review_builds_then_serves_with_source_watch(
     assert result == 0
     assert built == [(sample_site_copy.resolve(), output_dir)]
     assert served == [(output_dir.resolve(), sample_site_copy.resolve())]
+
+
+def test_main_integrated_review_requires_overwrite_for_existing_custom_output(
+    sample_site_copy: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    sentinel = output_dir / "keep.txt"
+    sentinel.write_text("keep", encoding="utf-8")
+    stderr = io.StringIO()
+
+    def fail_build_site_preserving_review(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("integrated review must reject before rebuilding")
+
+    def fail_serve_review(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("integrated review must reject before serving")
+
+    monkeypatch.setattr(
+        "md_for_human.cli.build_site_preserving_review",
+        fail_build_site_preserving_review,
+    )
+    monkeypatch.setattr("md_for_human.cli.serve_review", fail_serve_review)
+
+    result = main(
+        [str(sample_site_copy), "--output", str(output_dir), "--review"],
+        opener=lambda *_: None,
+        stdout=io.StringIO(),
+        stderr=stderr,
+    )
+
+    assert result == 1
+    assert "Use --overwrite to replace it" in stderr.getvalue()
+    assert sentinel.read_text(encoding="utf-8") == "keep"
 
 
 def test_main_review_rejects_output_without_manifest(

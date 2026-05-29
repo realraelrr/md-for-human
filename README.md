@@ -68,8 +68,12 @@ md-for-human --validate-review /tmp/md-for-human-sample-site
 Build and start local review mode with source hot reload:
 
 ```bash
-md-for-human path/to/agent-output -o /tmp/md-for-human-review --review
+md-for-human path/to/agent-output -o /tmp/md-for-human-review --review --overwrite
 ```
+
+When `--review` builds to an existing custom output directory, add `--overwrite`.
+Reviewing an existing generated site with `--review OUTPUT_DIR` does not rebuild
+and does not require `--overwrite`.
 
 Start a local browser review UI for an existing generated site without source hot reload:
 
@@ -163,12 +167,16 @@ The review server binds to `127.0.0.1`, injects the review UI at request time,
 and leaves generated HTML files unchanged. API routes live under
 `/__mdfh_review/`, require a per-session token, do not enable CORS, and only
 write `.md-for-human/review/annotations.json` plus the derived `review.md`.
-The UI uses one marker, an underline/highlight anchor, plus a right comment rail.
-Rendered Markdown blocks carry `data-mdfh-source-lines`, letting the browser save
-the selected Markdown line range. The server rejects schema, page, and
-source-path hard failures before writing. Missing or repeated quote anchors are
-saved as diagnostics so the communication artifact remains available for agent
-handoff.
+Review HTML responses use a nonce-based Content Security Policy that allows only
+md-for-human's own inline scripts and styles to run; Markdown raw HTML remains
+rendered for inspection, but raw Markdown scripts, inline event handlers, and
+`javascript:` links are blocked in review mode. Plain static builds do not add
+that CSP and continue to preserve raw HTML as authored. The UI uses one marker,
+an underline/highlight anchor, plus a right comment rail. Rendered Markdown
+blocks carry `data-mdfh-source-lines`, letting the browser save the selected
+Markdown line range. The server rejects schema, page, and source-path hard
+failures before writing. Missing or repeated quote anchors are saved as
+diagnostics so the communication artifact remains available for agent handoff.
 
 ## Agent Skill
 

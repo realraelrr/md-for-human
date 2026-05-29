@@ -18,7 +18,7 @@ rewrite, summarize, or restyle the content unless the user explicitly asks.
    review UI, and enables source hot reload:
 
 ```bash
-md-for-human path/to/input -o "${TMPDIR:-/tmp}/md-for-human-preview" --review
+md-for-human path/to/input -o "${TMPDIR:-/tmp}/md-for-human-preview" --review --overwrite
 ```
 
 4. If the user explicitly asks only to read the document, build a plain static
@@ -31,7 +31,7 @@ md-for-human path/to/input -o "${TMPDIR:-/tmp}/md-for-human-preview" --overwrite
 If `md-for-human` is not found, use the conda environment directly:
 
 ```bash
-conda run -n md-for-human md-for-human path/to/input -o "${TMPDIR:-/tmp}/md-for-human-preview" --review
+conda run -n md-for-human md-for-human path/to/input -o "${TMPDIR:-/tmp}/md-for-human-preview" --review --overwrite
 ```
 
 Inside this repository checkout, the module command is also valid:
@@ -76,7 +76,11 @@ selected, the UI writes a whole-document comment with `scope: "document"`.
 The review server binds to `127.0.0.1`, uses a per-session token for
 `/__mdfh_review/` API calls, does not enable CORS, and only writes
 `.md-for-human/review/annotations.json` plus generated `review.md`. It never
-rewrites source Markdown or generated HTML.
+rewrites source Markdown or generated HTML. Review HTML responses use a
+nonce-based Content Security Policy so only md-for-human's own inline scripts
+and styles can execute; Markdown raw scripts, inline event handlers, and
+`javascript:` links remain visible in the rendered document but are blocked by
+the browser in review mode. Plain static builds do not add this CSP.
 
 `annotations.json` is the fact source; `review.md` is generated from it. Do not
 edit `review.md` manually. Agents should read `review.md` first and use

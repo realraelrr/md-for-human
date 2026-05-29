@@ -29,7 +29,7 @@ def render_page_html(
         "  <meta charset=\"utf-8\">\n"
         "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
         f"  <title>{html.escape(page.title)}</title>\n"
-        f"  <style>{BASE_CSS}</style>\n"
+        f"  <style data-mdfh-base-style>{BASE_CSS}</style>\n"
         "</head>\n"
         f"<body data-mdfh-page=\"{page_attr}\" data-mdfh-source-path=\"{source_path_attr}\">\n"
         "  <div class=\"layout\" data-layout>\n"
@@ -66,7 +66,7 @@ def render_page_html(
         "      </div>\n"
         "    </main>\n"
         "  </div>\n"
-        f"  <script>{BASE_JS}</script>\n"
+        f"  <script data-mdfh-base-script>{BASE_JS}</script>\n"
         "</body>\n"
         "</html>\n"
     )

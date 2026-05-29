@@ -30,6 +30,9 @@ package-dir = {"" = "src"}
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"md_for_human.assets" = ["*.css", "*.js"]
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 
