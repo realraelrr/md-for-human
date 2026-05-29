@@ -69,8 +69,9 @@ md-for-human --review OUTPUT_DIR
 The UI is a protocol client over the generated site. It lets the reviewer select
 rendered text, write one free-text comment, and save to the same
 `annotations.json`. The only visual marker is an underline/highlight anchor plus
-the right comment rail. If no text is selected, the UI writes a whole-document
-comment with `scope: "document"`.
+the right comment rail. Behind that visual anchor, the UI records the Markdown
+source line range for the selected block when available. If no text is selected,
+the UI writes a whole-document comment with `scope: "document"`.
 
 The review server binds to `127.0.0.1`, uses a per-session token for
 `/__mdfh_review/` API calls, does not enable CORS, and only writes
@@ -79,15 +80,18 @@ rewrites source Markdown or generated HTML.
 
 `annotations.json` is the fact source; `review.md` is generated from it. Do not
 edit `review.md` manually. Agents should read `review.md` first and use
-`annotations.json` only when they need exact page/source/quote coordinates.
+`annotations.json` only when they need exact page/source line/quote coordinates.
 
 For v2, each annotation needs only a location and a comment after normalization:
 `id`, `page`, `source_path`, `comment`, `created_at`, `updated_at`, plus either
-`quote` or `scope: "document"`. Optional hints include `context_before`,
-`context_after`, `author`, and `ui_marker: "underline"`. Do not split edit intent
-into action fields; write deletion, insertion, replacement, and rationale in the
-natural-language `comment`. Legacy v1 artifacts can still be validated for
-read-only compatibility, but new reviews should use
+`quote` or `scope: "document"`. When a source line location is known, include
+`source_range: {"start_line": N, "end_line": M}` using 1-based closed Markdown
+line numbers; `quote` remains human context, not the primary locator for agents.
+Optional hints include `context_before`, `context_after`, `author`, and
+`ui_marker: "underline"`. Do not split edit intent into action fields; write
+deletion, insertion, replacement, and rationale in the natural-language
+`comment`. Legacy v1 artifacts can still be validated for read-only
+compatibility, but new reviews should use
 `schema_version: "mdfh-review-v2"`.
 
 ## Setup

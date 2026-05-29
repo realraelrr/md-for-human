@@ -92,6 +92,50 @@ def test_validate_review_accepts_v2_quote_and_document_comments(
     assert "type" not in summary.lower()
 
 
+def test_validate_review_v2_summary_prefers_source_line_ranges(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    output_dir = tmp_path / "output"
+    build_site(sample_site_copy, output_dir)
+    _write_review_artifact_v2(
+        output_dir,
+        [
+            {
+                "id": "ann_line_setup",
+                "page": "guide/setup.html",
+                "source_path": "guide/setup.md",
+                "source_range": {"start_line": 5, "end_line": 5},
+                "quote": "Run the setup steps here.",
+                "comment": "This is too vague; include the exact command and strict check.",
+                "created_at": "2026-05-28T12:00:00Z",
+                "updated_at": "2026-05-28T12:00:00Z",
+            },
+            {
+                "id": "ann_stale_quote_line_setup",
+                "page": "guide/setup.html",
+                "source_path": "guide/setup.md",
+                "source_range": {"start_line": 5, "end_line": 7},
+                "quote": "Old wording that no longer renders.",
+                "comment": "Line numbers still give the agent the primary location.",
+                "created_at": "2026-05-28T12:01:00Z",
+                "updated_at": "2026-05-28T12:01:00Z",
+            },
+        ],
+    )
+
+    result = validate_review(output_dir)
+    summary_path = output_dir / ".md-for-human" / "review" / "review.md"
+    summary = summary_path.read_text(encoding="utf-8")
+
+    assert result.errors == []
+    assert result.summary_path == summary_path
+    assert "## guide/setup.md:L5" in summary
+    assert "## guide/setup.md:L5-L7" in summary
+    assert "Line numbers still give the agent the primary location." in summary
+    assert "ann_stale_quote_line_setup: quote not found in guide/setup.html" in result.warnings
+
+
 def test_validate_review_v2_does_not_require_action_fields(
     sample_site_copy: Path,
     tmp_path: Path,

@@ -736,6 +736,7 @@ REVIEW_CLIENT_JS = r"""
   const state = {
     artifact: null,
     selectedQuote: "",
+    selectedSourceRange: null,
     editingId: "",
     documentMode: false,
     draftComment: "",
@@ -857,6 +858,7 @@ REVIEW_CLIENT_JS = r"""
   function resetDraft() {
     clearPendingSpans();
     state.selectedQuote = "";
+    state.selectedSourceRange = null;
     state.editingId = "";
     state.documentMode = false;
     state.draftComment = "";
@@ -869,8 +871,9 @@ REVIEW_CLIENT_JS = r"""
     focusEditor();
   }
 
-  function setTargetFromQuote(quote) {
+  function setTargetFromQuote(quote, sourceRange = null) {
     state.selectedQuote = quote.trim();
+    state.selectedSourceRange = sourceRange;
     state.editingId = "";
     state.documentMode = false;
     state.draftComment = "";
@@ -905,9 +908,10 @@ REVIEW_CLIENT_JS = r"""
     if (!selectedText) {
       return;
     }
+    const sourceRange = sourceRangeForSelection(range);
     clearPendingSpans();
     markPendingRange(range);
-    setTargetFromQuote(selectedText);
+    setTargetFromQuote(selectedText, sourceRange);
   }
 
   function isRangeInsideReviewBody(range) {
@@ -996,6 +1000,9 @@ REVIEW_CLIENT_JS = r"""
     };
     if (state.selectedQuote.trim() && !state.documentMode) {
       annotation.quote = state.selectedQuote.trim();
+      if (state.selectedSourceRange) {
+        annotation.source_range = state.selectedSourceRange;
+      }
     } else {
       annotation.scope = "document";
     }
@@ -1067,7 +1074,7 @@ REVIEW_CLIENT_JS = r"""
         return;
       }
       const status = state.anchorState.get(annotation.id);
-      if (status && status.warning) {
+      if (status && status.warning && !sourceRangeForAnnotation(annotation)) {
         return;
       }
       addRowItem(itemsByRow, row, {
@@ -1118,9 +1125,12 @@ REVIEW_CLIENT_JS = r"""
     card.className = "mdfh-review-card";
     card.dataset.mdfhReviewCard = annotation.id;
     card.tabIndex = 0;
+    const sourceRange = sourceRangeForAnnotation(annotation);
+    const locatorLabel = sourceRangeLabel(sourceRange);
+    const anchorLabel = [locatorLabel, annotation.quote || "Document comment"].filter(Boolean).join(" · ");
     card.innerHTML = `
       <p>${escapeHtml(annotation.comment)}</p>
-      <small>${escapeHtml(annotation.quote || "Document comment")}</small>
+      <small>${escapeHtml(anchorLabel)}</small>
       <div class="mdfh-review-card-actions">
         <button type="button" data-mdfh-review-edit="${escapeAttr(annotation.id)}">Edit</button>
       </div>
@@ -1134,11 +1144,13 @@ REVIEW_CLIENT_JS = r"""
       : null;
     const value = state.draftComment || "";
     const anchor = state.documentMode ? "Document comment" : state.selectedQuote;
+    const locatorLabel = sourceRangeLabel(state.selectedSourceRange);
     const editor = document.createElement("form");
     editor.className = "mdfh-review-editor";
     editor.dataset.mdfhReviewEditor = "1";
     editor.innerHTML = `
       <div class="mdfh-review-anchor">${escapeHtml(anchor || "Document comment")}</div>
+      ${locatorLabel ? `<small>${escapeHtml(locatorLabel)}</small>` : ""}
       <textarea class="mdfh-review-comment-input" data-mdfh-review-comment-input
         placeholder="Write the requested change and why it matters.">${escapeHtml(value)}</textarea>
       <div class="mdfh-review-editor-actions">
@@ -1156,7 +1168,7 @@ REVIEW_CLIENT_JS = r"""
     }
     const unplaced = annotations.filter((annotation) => {
       const status = state.anchorState.get(annotation.id);
-      return annotation.quote && status && status.warning;
+      return annotation.quote && status && status.warning && !sourceRangeForAnnotation(annotation);
     });
     if (unplaced.length === 0) {
       els.unplaced.hidden = true;
@@ -1376,6 +1388,10 @@ REVIEW_CLIENT_JS = r"""
     if (annotation.scope === "document") {
       return firstReviewRow();
     }
+    const sourceElement = firstElementForSourceRange(sourceRangeForAnnotation(annotation));
+    if (sourceElement) {
+      return sourceElement.closest("[data-mdfh-review-row]");
+    }
     const marker = firstMarkerForAnnotation(annotation.id);
     return marker ? marker.closest("[data-mdfh-review-row]") : null;
   }
@@ -1397,6 +1413,13 @@ REVIEW_CLIENT_JS = r"""
       if (annotation && annotation.scope === "document") {
         return { row: firstReviewRow(), offset: 0 };
       }
+      const sourceElement = annotation
+        ? firstElementForSourceRange(sourceRangeForAnnotation(annotation))
+        : null;
+      if (sourceElement) {
+        const row = sourceElement.closest("[data-mdfh-review-row]");
+        return row ? { row, offset: offsetForMarker(sourceElement, row) } : null;
+      }
       const marker = firstMarkerForAnnotation(state.editingId);
       const row = marker ? marker.closest("[data-mdfh-review-row]") : firstReviewRow();
       return row ? { row, offset: marker ? offsetForMarker(marker, row) : 0 } : null;
@@ -1417,7 +1440,11 @@ REVIEW_CLIENT_JS = r"""
       return 0;
     }
     const marker = firstMarkerForAnnotation(annotation.id);
-    return marker ? offsetForMarker(marker, row) : 0;
+    if (marker) {
+      return offsetForMarker(marker, row);
+    }
+    const sourceElement = firstElementForSourceRange(sourceRangeForAnnotation(annotation));
+    return sourceElement ? offsetForMarker(sourceElement, row) : 0;
   }
 
   function offsetForMarker(marker, row) {
@@ -1431,14 +1458,29 @@ REVIEW_CLIENT_JS = r"""
     }
     state.editingId = annotation.id;
     state.selectedQuote = annotation.quote || "";
+    state.selectedSourceRange = sourceRangeForAnnotation(annotation);
     state.documentMode = annotation.scope === "document";
     state.draftComment = annotation.comment || "";
     clearPendingSpans();
     renderAnnotations();
+    locateAnnotation(annotation);
+    focusEditor();
+  }
+
+  function locateAnnotation(annotation) {
+    const sourceElement = firstElementForSourceRange(sourceRangeForAnnotation(annotation));
+    if (sourceElement) {
+      flashElement(sourceElement);
+      return;
+    }
     if (annotation.quote) {
       locateQuote(annotation.quote, annotation.id);
+      return;
     }
-    focusEditor();
+    const row = firstReviewRow();
+    if (row) {
+      flashElement(row);
+    }
   }
 
   function locateQuote(quote, annotationId = "") {
@@ -1461,9 +1503,13 @@ REVIEW_CLIENT_JS = r"""
       return;
     }
     const block = target.closest("p, li, blockquote, pre, h1, h2, h3, h4, h5, h6") || target;
-    block.scrollIntoView({ behavior: "smooth", block: "center" });
-    block.classList.add("mdfh-review-flash");
-    setTimeout(() => block.classList.remove("mdfh-review-flash"), 1600);
+    flashElement(block);
+  }
+
+  function flashElement(element) {
+    element.scrollIntoView({ behavior: "smooth", block: "center" });
+    element.classList.add("mdfh-review-flash");
+    setTimeout(() => element.classList.remove("mdfh-review-flash"), 1600);
   }
 
   function escapeHtml(value) {
@@ -1492,6 +1538,78 @@ REVIEW_CLIENT_JS = r"""
       return null;
     }
     return node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+  }
+
+  function sourceRangeForSelection(range) {
+    const startElement = elementForNode(range.startContainer);
+    return sourceRangeForElement(startElement);
+  }
+
+  function sourceRangeForElement(element) {
+    if (!element || !element.closest) {
+      return null;
+    }
+    const sourceElement = element.closest("[data-mdfh-source-lines]");
+    if (!sourceElement || !content.contains(sourceElement)) {
+      return null;
+    }
+    return parseSourceRange(sourceElement.dataset.mdfhSourceLines);
+  }
+
+  function sourceRangeForAnnotation(annotation) {
+    return annotation ? parseSourceRange(annotation.source_range) : null;
+  }
+
+  function parseSourceRange(value) {
+    if (!value) {
+      return null;
+    }
+    if (typeof value === "string") {
+      const match = value.match(/^(\d+):(\d+)$/);
+      if (!match) {
+        return null;
+      }
+      return normalizeSourceRange(Number(match[1]), Number(match[2]));
+    }
+    if (typeof value === "object") {
+      return normalizeSourceRange(Number(value.start_line), Number(value.end_line));
+    }
+    return null;
+  }
+
+  function normalizeSourceRange(startLine, endLine) {
+    if (!Number.isInteger(startLine) || !Number.isInteger(endLine)) {
+      return null;
+    }
+    if (startLine <= 0 || endLine < startLine) {
+      return null;
+    }
+    return { start_line: startLine, end_line: endLine };
+  }
+
+  function sourceRangeLabel(sourceRange) {
+    if (!sourceRange) {
+      return "";
+    }
+    if (sourceRange.start_line === sourceRange.end_line) {
+      return `L${sourceRange.start_line}`;
+    }
+    return `L${sourceRange.start_line}-L${sourceRange.end_line}`;
+  }
+
+  function firstElementForSourceRange(sourceRange) {
+    if (!sourceRange) {
+      return null;
+    }
+    const candidates = Array.from(content.querySelectorAll("[data-mdfh-source-lines]"))
+      .map((element) => ({ element, range: parseSourceRange(element.dataset.mdfhSourceLines) }))
+      .filter((item) => item.range && item.range.start_line <= sourceRange.start_line && item.range.end_line >= sourceRange.start_line)
+      .sort((left, right) => sourceRangeSpan(left.range) - sourceRangeSpan(right.range));
+    return candidates.length ? candidates[0].element : null;
+  }
+
+  function sourceRangeSpan(sourceRange) {
+    return sourceRange ? sourceRange.end_line - sourceRange.start_line : Number.MAX_SAFE_INTEGER;
   }
 
   function activateCard(annotationId) {
@@ -1538,9 +1656,9 @@ REVIEW_CLIENT_JS = r"""
     const card = event.target.closest("[data-mdfh-review-card]");
     if (card) {
       const annotation = currentAnnotations().find((item) => item.id === card.dataset.mdfhReviewCard);
-      if (annotation && annotation.quote) {
+      if (annotation) {
         activateCard(annotation.id);
-        locateQuote(annotation.quote, annotation.id);
+        locateAnnotation(annotation);
       }
       return;
     }

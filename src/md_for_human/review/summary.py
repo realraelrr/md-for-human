@@ -31,9 +31,7 @@ def render_review_summary_v2(artifact: dict[str, Any]) -> str:
     for annotation in annotations:
         if not isinstance(annotation, dict):
             continue
-        label = string_value(annotation.get("source_path")) or string_value(
-            annotation.get("page"), fallback="unknown"
-        )
+        label = source_location_label(annotation)
         grouped.setdefault(label, []).append(annotation)
 
     lines = [
@@ -112,6 +110,30 @@ def render_annotation_v2(annotation: dict[str, Any]) -> list[str]:
 
     lines.extend([string_value(annotation.get("comment")), ""])
     return lines
+
+
+def source_location_label(annotation: dict[str, Any]) -> str:
+    source_path = string_value(annotation.get("source_path"))
+    page = string_value(annotation.get("page"), fallback="unknown")
+    base = source_path or page
+    line_label = source_line_label(annotation.get("source_range"))
+    if line_label:
+        return f"{base}:{line_label}"
+    return base
+
+
+def source_line_label(value: object) -> str:
+    if not isinstance(value, dict):
+        return ""
+    start_line = value.get("start_line")
+    end_line = value.get("end_line")
+    if not isinstance(start_line, int) or not isinstance(end_line, int):
+        return ""
+    if start_line <= 0 or end_line < start_line:
+        return ""
+    if start_line == end_line:
+        return f"L{start_line}"
+    return f"L{start_line}-L{end_line}"
 
 
 def render_annotation_v1(annotation: dict[str, Any]) -> list[str]:

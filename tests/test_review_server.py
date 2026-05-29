@@ -198,6 +198,30 @@ def test_review_server_valid_saved_artifact_passes_validate_review(
     assert result.annotation_count == 1
 
 
+def test_review_server_saves_source_range_and_generates_line_summary(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    output_dir = tmp_path / "output"
+    build_site(sample_site_copy, output_dir)
+    app = ReviewServerApp(output_dir, token="test-token")
+    artifact = _valid_artifact()
+    annotations = artifact["annotations"]
+    assert isinstance(annotations, list)
+    annotations[0]["source_range"] = {"start_line": 5, "end_line": 5}
+
+    response = app.save_annotations(token="test-token", artifact=artifact)
+    saved = response["artifact"]
+    saved_annotations = saved["annotations"]
+    assert isinstance(saved_annotations, list)
+
+    summary = (output_dir / ".md-for-human" / "review" / "review.md").read_text(
+        encoding="utf-8"
+    )
+    assert saved_annotations[0]["source_range"] == {"start_line": 5, "end_line": 5}
+    assert "## guide/setup.md:L5" in summary
+
+
 def test_atomic_text_writes_use_unique_temp_files(tmp_path: Path):
     path = tmp_path / "review.md"
     errors: list[BaseException] = []
@@ -424,10 +448,16 @@ def test_review_server_injected_ui_uses_inline_comments_without_fixed_rail(
     assert "canonicalizeWithMap" in served
     assert "graphemeClusters" in served
     assert "rawIndexToSegments" in served
+    assert "data-mdfh-source-lines" in served
+    assert "sourceRangeForSelection" in served
+    assert "sourceRangeForAnnotation" in served
+    assert "annotation.source_range" in served
+    assert "firstElementForSourceRange" in served
+    assert "locateAnnotation" in served
     assert "text.indexOf(quote" not in served
     assert "/state" in served
     assert "locateQuote" in served
-    assert "locateQuote(annotation.quote, annotation.id)" in served
+    assert "locateAnnotation(annotation)" in served
     assert "scrollIntoView" in served
     assert "data-mdfh-review-rail" not in served
     assert "data-mdfh-review-connector-layer" not in served

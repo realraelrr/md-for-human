@@ -131,11 +131,14 @@ machine-readable locator layer, and `review.md` is the generated summary agents
 should read first.
 
 The v2 protocol is intentionally small: each annotation records a location and a
-free-text comment. The location is either a quote anchor in a reviewable page or
-`scope: "document"` for a whole-page comment. Deletions, insertions,
-replacements, and rationale all belong in the natural-language `comment`.
-Legacy v1 artifacts remain validatable for read-only compatibility, but new
-browser and agent workflows write `mdfh-review-v2`.
+free-text comment. The primary location for agents is
+`source_path + source_range`, where `source_range` stores 1-based closed Markdown
+line numbers. `quote` is still stored as human-readable context and for browser
+underline recovery, but it is not the core locator. Whole-page comments use
+`scope: "document"`. Deletions, insertions, replacements, and rationale all
+belong in the natural-language `comment`. Legacy v1 artifacts remain validatable
+for read-only compatibility, but new browser and agent workflows write
+`mdfh-review-v2`.
 
 Validate review artifacts with:
 
@@ -161,9 +164,11 @@ and leaves generated HTML files unchanged. API routes live under
 `/__mdfh_review/`, require a per-session token, do not enable CORS, and only
 write `.md-for-human/review/annotations.json` plus the derived `review.md`.
 The UI uses one marker, an underline/highlight anchor, plus a right comment rail.
-The server rejects schema, page, and source-path hard failures before writing.
-Missing or repeated quote anchors are saved as warnings so the communication
-artifact remains available for agent handoff.
+Rendered Markdown blocks carry `data-mdfh-source-lines`, letting the browser save
+the selected block's Markdown line range. The server rejects schema, page, and
+source-path hard failures before writing. Missing or repeated quote anchors are
+saved as diagnostics so the communication artifact remains available for agent
+handoff.
 
 ## Agent Skill
 

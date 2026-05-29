@@ -70,6 +70,40 @@ def test_render_document_keeps_multilingual_heading_ids_readable(tmp_path: Path)
     assert 'href="#中文-标题"' in page.toc_html
 
 
+def test_render_document_adds_source_line_metadata_to_markdown_blocks(tmp_path: Path):
+    input_dir = tmp_path / "docs"
+    input_dir.mkdir()
+    (input_dir / "page.md").write_text(
+        "\n".join(
+            [
+                "# Title",
+                "",
+                "Paragraph text.",
+                "",
+                "- First item",
+                "- Second item",
+                "",
+                "```python",
+                "print('x')",
+                "```",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    manifest = discover_site(input_dir, tmp_path / "output")
+    page = render_document(manifest.documents[0], manifest)
+
+    assert '<h1 data-mdfh-source-lines="1:1" id="title">' in page.content_html
+    assert '<p data-mdfh-source-lines="3:3">Paragraph text.</p>' in page.content_html
+    assert '<li data-mdfh-source-lines="5:5">First item</li>' in page.content_html
+    assert '<li data-mdfh-source-lines="6:' in page.content_html
+    assert ">Second item</li>" in page.content_html
+    assert 'data-mdfh-source-lines="8:10"' in page.content_html
+    assert 'class="highlight"' in page.content_html
+
+
 def test_render_document_rewrites_in_tree_markdown_links_and_preserves_fragments(
     sample_site_copy: Path,
     tmp_path: Path,

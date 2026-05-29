@@ -25,6 +25,7 @@ def render_document(document: Document, manifest: SiteManifest) -> RenderedPage:
 
     source_text = document.source_path.read_text(encoding="utf-8")
     tokens = parser.parse(source_text)
+    add_source_line_attrs(tokens)
     document_lookup = {
         item.relative_source_path.as_posix().lower(): item for item in manifest.documents
     }
@@ -158,6 +159,27 @@ def _build_heading_id(text: str, slug_counts: dict[str, int]) -> str:
     return f"{base}-{count + 1}"
 
 
+def add_source_line_attrs(tokens: list[Token]) -> None:
+    for token in tokens:
+        if token.map is None:
+            continue
+        if token.nesting != 1 and token.type != "fence":
+            continue
+        if token.type == "inline":
+            continue
+        source_lines = source_line_attr(token.map)
+        if source_lines:
+            token.attrSet("data-mdfh-source-lines", source_lines)
+
+
+def source_line_attr(line_map: list[int]) -> str:
+    if len(line_map) < 2:
+        return ""
+    start_line = line_map[0] + 1
+    end_line = max(start_line, line_map[1])
+    return f"{start_line}:{end_line}"
+
+
 def _slugify_heading(text: str) -> str:
     normalized = unicodedata.normalize("NFKC", text.casefold())
     parts: list[str] = []
@@ -276,4 +298,12 @@ def _render_fence(
     except ClassNotFound:
         lexer = TextLexer(stripnl=False)
     formatter = HtmlFormatter(cssclass="highlight")
-    return highlight(token.content, lexer, formatter)
+    highlighted = highlight(token.content, lexer, formatter)
+    attrs = renderer.renderAttrs(token) if hasattr(renderer, "renderAttrs") else ""
+    if not attrs:
+        return highlighted
+    if highlighted.startswith("<div "):
+        return highlighted.replace("<div ", f"<div{attrs} ", 1)
+    if highlighted.startswith("<div>"):
+        return highlighted.replace("<div>", f"<div{attrs}>", 1)
+    return f"<div{attrs}>{highlighted}</div>"

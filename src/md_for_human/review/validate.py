@@ -314,6 +314,28 @@ def validate_annotation_fields_v2(
     scope = string_field(annotation, "scope")
     if not quote and scope != "document":
         errors.append(f'{annotation_id}: annotation must include quote or scope "document"')
+    validate_source_range(annotation.get("source_range"), annotation_id, errors)
+
+
+def validate_source_range(value: object, annotation_id: str, errors: list[str]) -> None:
+    if value is None:
+        return
+    if not isinstance(value, dict):
+        errors.append(f"{annotation_id}: source_range must be an object")
+        return
+    start_line = value.get("start_line")
+    end_line = value.get("end_line")
+    if (
+        not isinstance(start_line, int)
+        or isinstance(start_line, bool)
+        or not isinstance(end_line, int)
+        or isinstance(end_line, bool)
+        or start_line <= 0
+        or end_line < start_line
+    ):
+        errors.append(
+            f"{annotation_id}: source_range must include positive start_line and end_line"
+        )
 
 
 def validate_quote(
