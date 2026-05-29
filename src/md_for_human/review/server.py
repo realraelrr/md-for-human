@@ -1211,6 +1211,30 @@ REVIEW_CLIENT_JS = r"""
   }
 
   function findQuoteRanges(quote) {
+    const source = buildSearchSource();
+    const canonicalSource = canonicalizeWithMap(source.text);
+    const canonicalQuote = canonicalizeWithMap(quote);
+    if (!canonicalQuote.text) {
+      return [];
+    }
+    const ranges = [];
+    let index = 0;
+    while (true) {
+      index = canonicalSource.text.indexOf(canonicalQuote.text, index);
+      if (index === -1) {
+        break;
+      }
+      const canonicalEnd = index + canonicalQuote.text.length;
+      const rawStart = canonicalSource.map[index].start;
+      const rawEnd = canonicalSource.map[canonicalEnd - 1].end;
+      const segments = rawIndexToSegments(source.parts, rawStart, rawEnd);
+      ranges.push({ start: rawStart, end: rawEnd, segments });
+      index = canonicalEnd;
+    }
+    return ranges;
+  }
+
+  function buildSearchSource() {
     const parts = [];
     let text = "";
     textRoots().forEach((root, rootIndex) => {
@@ -1226,26 +1250,102 @@ REVIEW_CLIENT_JS = r"""
         node = walker.nextNode();
       }
     });
-    const ranges = [];
-    let index = 0;
-    while (quote && true) {
-      index = text.indexOf(quote, index);
-      if (index === -1) {
-        break;
+    return { text, parts };
+  }
+
+  function rawIndexToSegments(parts, start, end) {
+    return parts
+      .filter((part) => part.end > start && part.start < end)
+      .map((part) => ({
+        node: part.node,
+        start: Math.max(0, start - part.start),
+        end: Math.min(part.end - part.start, end - part.start),
+      }))
+      .filter((segment) => segment.end > segment.start);
+  }
+
+  function canonicalizeWithMap(value) {
+    const input = String(value || "");
+    let text = "";
+    const map = [];
+    let pendingSpace = false;
+    let pendingSpaceStart = 0;
+    let pendingSpaceEnd = 0;
+    graphemeClusters(input).forEach((clusterInfo) => {
+      const char = clusterInfo.segment;
+      if (/\s/u.test(char)) {
+        if (!pendingSpace) {
+          pendingSpaceStart = clusterInfo.start;
+        }
+        pendingSpace = true;
+        pendingSpaceEnd = clusterInfo.end;
+        return;
       }
-      const end = index + quote.length;
-      const segments = parts
-        .filter((part) => part.end > index && part.start < end)
-        .map((part) => ({
-          node: part.node,
-          start: Math.max(0, index - part.start),
-          end: Math.min(part.end - part.start, end - part.start),
-        }))
-        .filter((segment) => segment.end > segment.start);
-      ranges.push({ start: index, end, segments });
-      index = end;
+      if (pendingSpace && text.length > 0) {
+        const previous = text[text.length - 1];
+        if (!isSpaceEquivalentPunctuation(char) && !isOpeningPunctuation(previous)) {
+          text += " ";
+          map.push({ start: pendingSpaceStart, end: pendingSpaceEnd });
+        }
+      }
+      pendingSpace = false;
+      Array.from(char.normalize("NFC")).forEach((canonicalChar) => {
+        appendCanonicalChar(map, canonicalChar, clusterInfo.start, clusterInfo.end);
+        text += canonicalChar;
+      });
+    });
+    return { text, map };
+  }
+
+  function appendCanonicalChar(map, char, start, end) {
+    for (let offset = 0; offset < char.length; offset += 1) {
+      map.push({ start, end });
     }
-    return ranges;
+  }
+
+  function isSpaceEquivalentPunctuation(char) {
+    return /[，。；：！？、）》】」』）,.!?;:%％]/u.test(char);
+  }
+
+  function isOpeningPunctuation(char) {
+    return /[（《【「『(]/u.test(char);
+  }
+
+  function graphemeClusters(value) {
+    if (window.Intl && Intl.Segmenter) {
+      const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+      return Array.from(segmenter.segment(value)).map((item) => ({
+        segment: item.segment,
+        start: item.index,
+        end: item.index + item.segment.length,
+      }));
+    }
+    const clusters = [];
+    let rawIndex = 0;
+    while (rawIndex < value.length) {
+      const start = rawIndex;
+      let segment = value.slice(rawIndex, rawIndex + codeUnitLengthAt(value, rawIndex));
+      rawIndex += segment.length;
+      while (rawIndex < value.length) {
+        const nextChar = value.slice(rawIndex, rawIndex + codeUnitLengthAt(value, rawIndex));
+        if (!isCombiningMark(nextChar)) {
+          break;
+        }
+        segment += nextChar;
+        rawIndex += nextChar.length;
+      }
+      clusters.push({ segment, start, end: rawIndex });
+    }
+    return clusters;
+  }
+
+  function isCombiningMark(char) {
+    return /[\u0300-\u036f\u1ab0-\u1aff\u1dc0-\u1dff\ufe20-\ufe2f]/u.test(char);
+  }
+
+  function codeUnitLengthAt(value, index) {
+    const codePoint = value.codePointAt(index);
+    return codePoint && codePoint > 0xffff ? 2 : 1;
   }
 
   function wrapSegments(segments, { annotationId = "", pending = false } = {}) {
@@ -1336,18 +1436,18 @@ REVIEW_CLIENT_JS = r"""
     clearPendingSpans();
     renderAnnotations();
     if (annotation.quote) {
-      locateQuote(annotation.quote);
+      locateQuote(annotation.quote, annotation.id);
     }
     focusEditor();
   }
 
-  function locateQuote(quote) {
+  function locateQuote(quote, annotationId = "") {
     const ranges = findQuoteRanges(quote);
     if (ranges.length !== 1) {
       toast(ranges.length === 0 ? "Exact underline is unavailable." : "Exact underline is ambiguous.");
       return;
     }
-    let target = firstMarkerForAnnotation(state.editingId);
+    let target = annotationId ? firstMarkerForAnnotation(annotationId) : null;
     if (!target && window.find && window.find(quote)) {
       const selection = window.getSelection();
       if (selection && selection.rangeCount > 0) {
@@ -1440,7 +1540,7 @@ REVIEW_CLIENT_JS = r"""
       const annotation = currentAnnotations().find((item) => item.id === card.dataset.mdfhReviewCard);
       if (annotation && annotation.quote) {
         activateCard(annotation.id);
-        locateQuote(annotation.quote);
+        locateQuote(annotation.quote, annotation.id);
       }
       return;
     }

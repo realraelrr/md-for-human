@@ -421,8 +421,13 @@ def test_review_server_injected_ui_uses_inline_comments_without_fixed_rail(
     assert "Check unplaced comments on each page" not in served
     assert "Quote not found on this page" not in served
     assert "findQuoteRanges" in served
+    assert "canonicalizeWithMap" in served
+    assert "graphemeClusters" in served
+    assert "rawIndexToSegments" in served
+    assert "text.indexOf(quote" not in served
     assert "/state" in served
     assert "locateQuote" in served
+    assert "locateQuote(annotation.quote, annotation.id)" in served
     assert "scrollIntoView" in served
     assert "data-mdfh-review-rail" not in served
     assert "data-mdfh-review-connector-layer" not in served
