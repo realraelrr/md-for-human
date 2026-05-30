@@ -107,8 +107,9 @@ The tool fills bookkeeping fields such as `id`, `schema_version`,
 `source_manifest`, and `source_sha256` during `--validate-review` or browser
 save. Browser-created comments may include `meta.quote` for human visual
 context. Agents can ignore `meta`; `source_path + source_range` is the primary
-locator. Review mode archives old active comments when the source Markdown
-changes.
+locator. Manifest `documents[]` entries include `source_line_count`, and review
+validation rejects ranges that point past the source Markdown. Review mode
+archives old active comments when the source Markdown changes.
 
 ## Setup
 
@@ -136,7 +137,7 @@ Before claiming completion:
 - reported entry page exists and starts with `<!DOCTYPE html>`
 - entry page contains site navigation
 - `.md-for-human/manifest.json` exists in the output directory
-- manifest `documents` maps reviewable pages to source paths and source sha256 values
+- manifest `documents` maps reviewable pages to source paths, source line counts, and source sha256 values
 - `--verify` passed if you used it, or `--strict` passed for agent handoff
 - `--validate-review` passed if you are handing back review annotations
 - artifacts created by `--review` and artifacts created by agents use the same schema

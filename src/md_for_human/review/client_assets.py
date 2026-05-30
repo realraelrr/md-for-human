@@ -70,4 +70,10 @@ REVIEW_CLIENT_PANEL = """
 <div class="mdfh-review-unplaced" data-mdfh-review-unplaced hidden></div>
 <div class="mdfh-review-toast" data-mdfh-review-toast role="status" hidden></div>
 """.strip()
-REVIEW_CLIENT_JS = load_asset_text("review.js")
+REVIEW_CLIENT_JS_ASSETS = (
+    "review-artifact.js",
+    "review-source-locator.js",
+    "review-comments-renderer.js",
+    "review.js",
+)
+REVIEW_CLIENT_JS = "\n".join(load_asset_text(name) for name in REVIEW_CLIENT_JS_ASSETS)

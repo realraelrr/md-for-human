@@ -111,11 +111,13 @@ Every build writes `.md-for-human/manifest.json` inside the output directory:
     {
       "page": "index.html",
       "source_path": "README.md",
+      "source_line_count": 42,
       "source_sha256": "..."
     },
     {
       "page": "guide/setup.html",
       "source_path": "guide/setup.md",
+      "source_line_count": 18,
       "source_sha256": "..."
     }
   ],
@@ -140,7 +142,9 @@ free-text comment. The primary location for agents is
 line numbers. Whole-page comments use the reserved range
 `source_range: {"start_line": 0, "end_line": 0}`. Each saved annotation also
 records the current source SHA so review mode can archive old comments after the
-source Markdown changes. Deletions, insertions, replacements, and rationale all
+source Markdown changes. Manifest `documents[]` entries include
+`source_line_count`; `--validate-review` rejects annotation ranges that point
+past the source file. Deletions, insertions, replacements, and rationale all
 belong in the natural-language `comment`. The only persisted UI context is an
 optional `meta.quote` for human visual confirmation. The review protocol accepts
 only `schema_version: "mdfh-review-v2"`, but agents may omit bookkeeping fields;

@@ -90,11 +90,13 @@ Browser opened: yes/no
     {
       "page": "index.html",
       "source_path": "README.md",
+      "source_line_count": 42,
       "source_sha256": "..."
     },
     {
       "page": "guide/setup.html",
       "source_path": "guide/setup.md",
+      "source_line_count": 18,
       "source_sha256": "..."
     }
   ],
@@ -108,12 +110,19 @@ Browser opened: yes/no
 ## Review Artifacts
 
 审阅标注是 `.md-for-human/review/` 下的可选 sidecar artifact，不会修改源
-Markdown 或生成的 HTML。`annotations.json` 是机器可读事实源，`review.md` 是
-面向人类和 agent 的派生摘要。
+Markdown 或生成的 HTML。`review.md` 是 agent 应先阅读的派生摘要；
+`annotations.json` 是需要精确坐标时使用的机器可读事实源。
 
-v1 协议支持 `comment`、`suggest_delete`、`suggest_insert` 和
-`suggest_replace`。每条 annotation 记录页面、源路径、quote 锚点、note 和时间戳。
-对 `suggest_insert` 来说，quote 只是插入位置锚点，不是要编辑或删除的文本。
+v2 协议刻意保持很小：每条 annotation 只记录位置和一段自由文本评论。
+agent 的主定位方式是 `source_path + source_range`，其中 `source_range`
+保存 1-based 闭区间 Markdown 行号。整页评论使用保留范围
+`source_range: {"start_line": 0, "end_line": 0}`。每条保存的 annotation
+还记录当前源文件 SHA，便于 review mode 在源 Markdown 变化后归档旧评论。
+manifest 的 `documents[]` 条目包含 `source_line_count`；`--validate-review`
+会拒绝越过源文件行数的 annotation range。删除、插入、替换和理由都写在自然语言
+`comment` 中。唯一持久化的 UI 上下文是可选的 `meta.quote`，用于人工视觉确认。
+review 协议只接受 `schema_version: "mdfh-review-v2"`，但 agent 可以省略
+bookkeeping 字段；`--validate-review` 会补齐这些字段。
 
 验证审阅 artifact：
 
@@ -121,7 +130,7 @@ v1 协议支持 `comment`、`suggest_delete`、`suggest_insert` 和
 md-for-human --validate-review path/to/output
 ```
 
-当缺失或歧义 quote 锚点也应让自动化失败时，加上 `--fail-on-warning`。
+只有在非核心诊断也应让自动化失败时，才加上 `--fail-on-warning`。
 
 当人类需要像批改论文一样做标注时，使用浏览器审阅 UI：
 
@@ -132,9 +141,13 @@ md-for-human --review path/to/output
 审阅 server 只绑定 `127.0.0.1`，按请求动态注入审阅 UI，不改写已有生成
 HTML。API 路由统一位于 `/__mdfh_review/`，需要 per-session token，不启用
 CORS，并且只写 `.md-for-human/review/annotations.json` 和派生的 `review.md`。
-UI 会提交完整 artifact 草稿，但 server 会在写入前拒绝 schema、page 和
-source_path 等 hard failure。quote 缺失或重复只作为 warning 返回，仍允许保存，
-方便继续交给 agent 消费。
+review HTML 响应使用基于 nonce 的 Content Security Policy，只允许
+md-for-human 自己的 inline script 和 style 执行；Markdown raw HTML 仍会渲染
+以便检查，但 raw Markdown scripts、inline event handlers 和 `javascript:`
+links 会在 review mode 中被浏览器阻止。普通静态构建不会添加该 CSP。
+
+当被审阅的 Markdown 源发生变化时，旧 source hash 对应的 active comments
+会移动到 `.md-for-human/review/archive.json`，并从 active `review.md` 中移除。
 
 ## Agent Skill
 

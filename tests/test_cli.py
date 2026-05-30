@@ -515,6 +515,47 @@ def test_main_validate_review_reports_success_without_rebuilding(
     assert stderr.getvalue() == ""
 
 
+def test_main_validate_review_rejects_missing_manifest_source_line_count_without_updating_summary(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    output_dir = tmp_path / "output"
+    assert (
+        main(
+            [str(sample_site_copy), "--output", str(output_dir), "--no-open"],
+            opener=lambda *_: None,
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        )
+        == 0
+    )
+    manifest_path = output_dir / ".md-for-human" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    del manifest["documents"][0]["source_line_count"]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    _write_review_artifact(output_dir, quote="Run the setup steps here.")
+    summary_path = output_dir / ".md-for-human" / "review" / "review.md"
+    summary_path.write_text("existing summary\n", encoding="utf-8")
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+
+    result = main(
+        ["--validate-review", str(output_dir)],
+        opener=lambda *_: None,
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    assert result == 1
+    assert "Review validation: failed" in stdout.getvalue()
+    assert "Review summary:" not in stdout.getvalue()
+    assert (
+        "Review error: manifest documents[0]: source_line_count missing or invalid"
+        in stderr.getvalue()
+    )
+    assert summary_path.read_text(encoding="utf-8") == "existing summary\n"
+
+
 def test_main_validate_review_fail_on_warning_ignores_missing_quote_when_line_range_exists(
     sample_site_copy: Path,
     tmp_path: Path,

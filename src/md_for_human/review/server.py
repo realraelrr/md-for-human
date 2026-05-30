@@ -179,7 +179,7 @@ class ReviewServerApp:
         )
         if active_artifact != loaded_artifact:
             write_json_atomic(annotations_path(self.output_dir), active_artifact)
-            write_review_summary(self.output_dir, active_artifact)
+            self._write_review_summary_if_valid(active_artifact)
         return active_artifact
 
     def _normalize_review_artifact(self, artifact: dict[str, Any]) -> dict[str, Any]:
@@ -226,10 +226,26 @@ class ReviewServerApp:
             # remove from active annotations.
             append_archived_annotations(self.output_dir, archived_annotations)
             write_json_atomic(annotations_path(self.output_dir), cleaned_artifact)
-            write_review_summary(self.output_dir, cleaned_artifact)
+            self._write_review_summary_if_valid(cleaned_artifact, documents=documents)
         elif write_archive and archived_annotations:
             append_archived_annotations(self.output_dir, archived_annotations)
         return cleaned_artifact
+
+    def _write_review_summary_if_valid(
+        self,
+        artifact: dict[str, Any],
+        *,
+        documents: dict[str, Any] | None = None,
+    ) -> None:
+        result = validate_review_artifact(
+            self.output_dir,
+            artifact,
+            documents=documents,
+            write_summary=False,
+        )
+        if result.errors:
+            return
+        write_review_summary(self.output_dir, artifact)
 
     def _manifest_documents_for_archive(self) -> dict[str, Any]:
         manifest_errors: list[str] = []

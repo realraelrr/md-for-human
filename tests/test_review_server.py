@@ -92,13 +92,14 @@ def test_review_server_rejects_hard_failures_before_writing(
     invalid_artifact = _valid_artifact()
     annotations = invalid_artifact["annotations"]
     assert isinstance(annotations, list)
-    annotations[0]["source_range"] = {"start_line": 9, "end_line": 5}
+    annotations[0]["source_range"] = {"start_line": 5, "end_line": 6}
 
     with pytest.raises(ReviewServerError) as exc_info:
         app.save_annotations(token="test-token", artifact=invalid_artifact)
 
-    assert "source_range must be 0:0 or positive start_line and end_line" in "\n".join(
-        exc_info.value.errors
+    assert (
+        "source_range end_line 6 exceeds source_line_count 5 for guide/setup.md"
+        in "\n".join(exc_info.value.errors)
     )
     assert artifact_path.read_text(encoding="utf-8") == original
     assert not (output_dir / ".md-for-human" / "review" / "review.md").exists()
@@ -343,6 +344,37 @@ def test_review_server_archives_annotations_after_source_hash_change(
         encoding="utf-8"
     )
     assert "ann_ui" not in summary
+
+
+def test_review_server_state_archiving_does_not_write_summary_for_invalid_active_artifact(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    output_dir = tmp_path / "output"
+    build_site(sample_site_copy, output_dir)
+    app = ReviewServerApp(output_dir, token="test-token")
+    artifact_path = output_dir / ".md-for-human" / "review" / "annotations.json"
+    artifact = _valid_artifact()
+    annotations = artifact["annotations"]
+    assert isinstance(annotations, list)
+    stale_annotation = dict(annotations[0])
+    stale_annotation["id"] = "ann_old"
+    stale_annotation["source_sha256"] = "0" * 64
+    invalid_annotation = dict(annotations[0])
+    invalid_annotation["id"] = "ann_invalid"
+    invalid_annotation["source_range"] = {"start_line": 5, "end_line": 6}
+    annotations[:] = [stale_annotation, invalid_annotation]
+    write_json_atomic(artifact_path, artifact)
+
+    state = app.get_state(token="test-token")
+
+    assert (
+        "ann_invalid: source_range end_line 6 exceeds "
+        "source_line_count 5 for guide/setup.md"
+    ) in state["validation"]["errors"]
+    assert not (output_dir / ".md-for-human" / "review" / "review.md").exists()
+    archive = json.loads(archive_path(output_dir).read_text(encoding="utf-8"))
+    assert archive["annotations"][0]["id"] == "ann_old"
 
 
 def test_review_server_save_archives_stale_annotations_without_dropping_them(

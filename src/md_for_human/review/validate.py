@@ -41,6 +41,7 @@ class ManifestDocument:
     page: str
     source_path: str
     source_sha256: str
+    source_line_count: int
 
 
 @dataclass(slots=True)
@@ -107,7 +108,12 @@ def validate_review_artifact(
         errors.append("annotations.json: top-level object is not an object")
 
     written_summary_path: Path | None = None
-    if write_summary and isinstance(artifact, dict) and isinstance(artifact.get("annotations"), list):
+    if (
+        write_summary
+        and not errors
+        and isinstance(artifact, dict)
+        and isinstance(artifact.get("annotations"), list)
+    ):
         written_summary_path = write_review_summary(output_dir, artifact)
 
     return ReviewValidationResult(
@@ -156,6 +162,7 @@ def parse_manifest_documents(
         page = item.get("page")
         source_path = item.get("source_path")
         source_sha256 = item.get("source_sha256")
+        source_line_count = item.get("source_line_count")
         if not isinstance(page, str) or not page:
             errors.append(f"{label}: page missing or invalid")
             continue
@@ -171,7 +178,19 @@ def parse_manifest_documents(
         if not isinstance(source_sha256, str) or not SHA256_RE.fullmatch(source_sha256):
             errors.append(f'{label}: source_sha256 for page "{page}" is not a valid sha256')
             continue
-        documents_by_page[page] = ManifestDocument(page, source_path, source_sha256)
+        if (
+            not isinstance(source_line_count, int)
+            or isinstance(source_line_count, bool)
+            or source_line_count < 0
+        ):
+            errors.append(f"{label}: source_line_count missing or invalid")
+            continue
+        documents_by_page[page] = ManifestDocument(
+            page,
+            source_path,
+            source_sha256,
+            source_line_count,
+        )
 
     return documents_by_page
 
@@ -215,6 +234,12 @@ def validate_artifact(
             else:
                 page = document.page
                 pages_touched.add(page)
+                validate_source_range_bounds(
+                    raw_annotation.get("source_range"),
+                    document,
+                    annotation_id,
+                    errors,
+                )
                 if annotation_quote(raw_annotation) and parse_source_range(
                     raw_annotation.get("source_range")
                 ) is None:
@@ -282,6 +307,25 @@ def validate_source_range(value: object, annotation_id: str, errors: list[str]) 
         )
         return False
     return True
+
+
+def validate_source_range_bounds(
+    value: object,
+    document: ManifestDocument,
+    annotation_id: str,
+    errors: list[str],
+) -> None:
+    source_range = parse_source_range(value)
+    if source_range is None:
+        return
+    start_line, end_line = source_range
+    if start_line == 0 and end_line == 0:
+        return
+    if end_line > document.source_line_count:
+        errors.append(
+            f"{annotation_id}: source_range end_line {end_line} exceeds "
+            f"source_line_count {document.source_line_count} for {document.source_path}"
+        )
 
 
 def parse_source_range(value: object) -> tuple[int, int] | None:

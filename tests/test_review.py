@@ -141,7 +141,7 @@ def test_validate_review_v2_summary_prefers_source_line_ranges(
             {
                 "id": "ann_stale_quote_line_setup",
                 "source_path": "guide/setup.md",
-                "source_range": {"start_line": 5, "end_line": 7},
+                "source_range": {"start_line": 4, "end_line": 5},
                 "quote": "Old wording that no longer renders.",
                 "comment": "Line numbers still give the agent the primary location.",
             },
@@ -155,7 +155,7 @@ def test_validate_review_v2_summary_prefers_source_line_ranges(
     assert result.errors == []
     assert result.summary_path == summary_path
     assert "## guide/setup.md:L5" in summary
-    assert "## guide/setup.md:L5-L7" in summary
+    assert "## guide/setup.md:L4-L5" in summary
     assert "Line numbers still give the agent the primary location." in summary
     assert result.warnings == []
 
@@ -222,6 +222,12 @@ def test_validate_review_v2_rejects_invalid_source_ranges(
                 "source_range": "1:2",
                 "comment": "Invalid non-object range.",
             },
+            {
+                "id": "ann_out_of_bounds",
+                "source_path": "guide/setup.md",
+                "source_range": {"start_line": 5, "end_line": 6},
+                "comment": "Invalid range beyond the source file.",
+            },
         ],
     )
 
@@ -240,6 +246,75 @@ def test_validate_review_v2_rejects_invalid_source_ranges(
         in result.errors
     )
     assert "ann_non_object: source_range must be an object" in result.errors
+    assert (
+        "ann_out_of_bounds: source_range end_line 6 exceeds "
+        "source_line_count 5 for guide/setup.md"
+    ) in result.errors
+    assert result.summary_path is None
+    assert not (output_dir / ".md-for-human" / "review" / "review.md").exists()
+
+
+def test_validate_review_rejects_missing_and_invalid_manifest_source_line_count(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    output_dir = tmp_path / "output"
+    build_site(sample_site_copy, output_dir)
+    manifest_path = output_dir / ".md-for-human" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    del manifest["documents"][0]["source_line_count"]
+    manifest["documents"][1]["source_line_count"] = -1
+    manifest["documents"][2]["source_line_count"] = True
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    _write_review_artifact(
+        output_dir,
+        [
+            {
+                "id": "ann_setup",
+                "source_path": "guide/setup.md",
+                "source_range": {"start_line": 5, "end_line": 5},
+                "comment": "A valid annotation should still reject a bad manifest.",
+            },
+        ],
+    )
+
+    result = validate_review(output_dir)
+
+    assert "manifest documents[0]: source_line_count missing or invalid" in result.errors
+    assert "manifest documents[1]: source_line_count missing or invalid" in result.errors
+    assert "manifest documents[2]: source_line_count missing or invalid" in result.errors
+    assert result.summary_path is None
+    assert not (output_dir / ".md-for-human" / "review" / "review.md").exists()
+
+
+def test_validate_review_does_not_update_existing_summary_on_hard_errors(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    output_dir = tmp_path / "output"
+    build_site(sample_site_copy, output_dir)
+    _write_review_artifact(
+        output_dir,
+        [
+            {
+                "id": "ann_out_of_bounds",
+                "source_path": "guide/setup.md",
+                "source_range": {"start_line": 6, "end_line": 6},
+                "comment": "This invalid range must not overwrite the summary.",
+            },
+        ],
+    )
+    summary_path = output_dir / ".md-for-human" / "review" / "review.md"
+    summary_path.write_text("existing summary\n", encoding="utf-8")
+
+    result = validate_review(output_dir)
+
+    assert (
+        "ann_out_of_bounds: source_range end_line 6 exceeds "
+        "source_line_count 5 for guide/setup.md"
+    ) in result.errors
+    assert result.summary_path is None
+    assert summary_path.read_text(encoding="utf-8") == "existing summary\n"
 
 
 def test_validate_review_archives_source_hash_mismatch_before_summary(

@@ -204,6 +204,7 @@ def write_agent_manifest(
                     {
                         "page": document.output_path.as_posix(),
                         "source_path": document.relative_source_path.as_posix(),
+                        "source_line_count": source_line_count(document.source_path),
                         "source_sha256": hashlib.sha256(
                             document.source_path.read_bytes()
                         ).hexdigest(),
@@ -220,3 +221,7 @@ def write_agent_manifest(
         encoding="utf-8",
     )
     return manifest_path
+
+
+def source_line_count(path: Path) -> int:
+    return len(path.read_text(encoding="utf-8").splitlines())
