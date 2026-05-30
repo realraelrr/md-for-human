@@ -1,6 +1,3 @@
 from __future__ import annotations
 
-SCHEMA_VERSION_V1 = "mdfh-review-v1"
-SCHEMA_VERSION_V2 = "mdfh-review-v2"
-SCHEMA_VERSION = SCHEMA_VERSION_V2
-SUPPORTED_SCHEMA_VERSIONS = {SCHEMA_VERSION_V1, SCHEMA_VERSION_V2}
+SCHEMA_VERSION = "mdfh-review-v2"

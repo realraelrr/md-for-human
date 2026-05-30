@@ -58,7 +58,8 @@ review artifact and validating it:
 md-for-human --validate-review OUTPUT_DIR
 ```
 
-Use `--fail-on-warning` when ambiguous anchors should reject the handoff.
+Use `--fail-on-warning` only for automation that deliberately treats non-core
+diagnostics as blocking.
 
 Humans can create the same artifact through the local browser review UI:
 
@@ -71,7 +72,8 @@ rendered text, write one free-text comment, and save to the same
 `annotations.json`. The only visual marker is an underline/highlight anchor plus
 the right comment rail. Behind that visual anchor, the UI records the full
 Markdown source line range covered by the selection when available. If no text is
-selected, the UI writes a whole-document comment with `scope: "document"`.
+selected, the UI writes a whole-document comment with
+`source_range: {"start_line": 0, "end_line": 0}`.
 
 The review server binds to `127.0.0.1`, uses a per-session token for
 `/__mdfh_review/` API calls, does not enable CORS, and only writes
@@ -83,22 +85,30 @@ and styles can execute; Markdown raw scripts, inline event handlers, and
 the browser in review mode. Plain static builds do not add this CSP.
 
 `annotations.json` is the fact source; `review.md` is generated from it. Do not
-edit `review.md` manually. Agents should read `review.md` first and use
-`annotations.json` only when they need exact page/source line/quote coordinates.
+edit `review.md` manually. Agents should read `review.md` first. Read
+`annotations.json` only when exact source coordinates are needed.
 
-For v2, each annotation needs only a location and a comment after normalization:
-`id`, `page`, `source_path`, `source_range`, `comment`, `created_at`, and
-`updated_at`. Use 1-based closed Markdown line numbers for normal comments, and
-use `source_range: {"start_line": 0, "end_line": 0}` for a whole-document
-comment. `quote` remains human context, not the primary locator for agents.
-Review mode records `source_sha256` automatically and archives old active
-comments when the source Markdown changes.
-Optional hints include `context_before`, `context_after`, `author`, and
-`ui_marker: "underline"`. Do not split edit intent into action fields; write
-deletion, insertion, replacement, and rationale in the natural-language
-`comment`. Legacy v1 artifacts can still be validated for read-only
-compatibility, but new reviews should use
-`schema_version: "mdfh-review-v2"`.
+For v2, the agent-facing fields are intentionally small:
+
+```json
+{
+  "source_path": "guide/setup.md",
+  "source_range": {"start_line": 12, "end_line": 14},
+  "comment": "Explain the exact setup command and failure mode."
+}
+```
+
+Use 1-based closed Markdown line numbers for normal comments. Use
+`source_range: {"start_line": 0, "end_line": 0}` for a whole-document comment.
+Do not split edit intent into action fields; write deletion, insertion,
+replacement, and rationale in the natural-language `comment`.
+
+The tool fills bookkeeping fields such as `id`, `schema_version`,
+`source_manifest`, and `source_sha256` during `--validate-review` or browser
+save. Browser-created comments may include `meta.quote` for human visual
+context. Agents can ignore `meta`; `source_path + source_range` is the primary
+locator. Review mode archives old active comments when the source Markdown
+changes.
 
 ## Setup
 

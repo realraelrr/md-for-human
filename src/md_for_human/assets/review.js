@@ -28,7 +28,6 @@
     anchorState: new Map(),
   };
 
-  const nowIso = () => new Date().toISOString();
   const clone = (value) => JSON.parse(JSON.stringify(value));
   const fallbackReviewMessages = {
     reviewComment: "Comment",
@@ -86,6 +85,7 @@
   function ensureV2Artifact(artifact) {
     if (artifact && artifact.schema_version === "mdfh-review-v2") {
       artifact.annotations = Array.isArray(artifact.annotations) ? artifact.annotations : [];
+      artifact.annotations = artifact.annotations.map((annotation) => normalizeAnnotation(annotation));
       return artifact;
     }
     return {
@@ -125,8 +125,37 @@
     return Array.from(new Set((messages || []).filter(Boolean)));
   }
 
+  function annotationMeta(annotation) {
+    return annotation && annotation.meta && typeof annotation.meta === "object" ? annotation.meta : {};
+  }
+
+  function normalizeAnnotation(annotation) {
+    const meta = Object.assign({}, annotationMeta(annotation));
+    if (
+      annotation &&
+      Object.prototype.hasOwnProperty.call(annotation, "quote") &&
+      !Object.prototype.hasOwnProperty.call(meta, "quote")
+    ) {
+      meta.quote = annotation.quote;
+    }
+    const normalized = {};
+    ["id", "source_path", "source_range", "comment", "source_sha256"].forEach((field) => {
+      if (annotation && Object.prototype.hasOwnProperty.call(annotation, field)) {
+        normalized[field] = annotation[field];
+      }
+    });
+    if (Object.keys(meta).length) {
+      normalized.meta = meta;
+    }
+    return normalized;
+  }
+
+  function annotationQuote(annotation) {
+    return annotationMeta(annotation).quote || annotation.quote || "";
+  }
+
   function pageAnnotations() {
-    return currentAnnotations().filter((annotation) => annotation.page === page);
+    return currentAnnotations().filter((annotation) => annotation.source_path === sourcePath);
   }
 
   function prepareReviewLayout() {
@@ -330,19 +359,15 @@
     artifact.schema_version = "mdfh-review-v2";
     artifact.source_manifest = ".md-for-human/manifest.json";
     const annotations = Array.isArray(artifact.annotations) ? artifact.annotations : [];
-    const existing = annotations.find((annotation) => annotation.id === state.editingId);
-    const timestamp = nowIso();
     const annotation = {
-      id: state.editingId || `ann_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
-      page,
       source_path: sourcePath,
       comment,
-      created_at: existing ? existing.created_at : timestamp,
-      updated_at: timestamp,
-      ui_marker: "underline",
     };
+    if (state.editingId) {
+      annotation.id = state.editingId;
+    }
     if (state.selectedQuote.trim() && !state.documentMode) {
-      annotation.quote = state.selectedQuote.trim();
+      annotation.meta = { quote: state.selectedQuote.trim() };
       if (state.selectedSourceRange) {
         annotation.source_range = state.selectedSourceRange;
       }
@@ -350,7 +375,7 @@
       annotation.source_range = { start_line: 0, end_line: 0 };
     }
     artifact.annotations = annotations
-      .filter((item) => item.id !== annotation.id)
+      .filter((item) => !annotation.id || item.id !== annotation.id)
       .concat(annotation);
     if (await saveArtifact(artifact, t("reviewSaved"))) {
       resetDraft();
@@ -394,7 +419,7 @@
     state.anchorState = new Map();
     const annotations = pageAnnotations();
     annotations
-      .filter((annotation) => annotation.quote)
+      .filter((annotation) => annotationQuote(annotation))
       .forEach((annotation) => markSavedQuote(annotation));
     renderInlineComments(annotations);
     renderUnplacedComments(annotations);
@@ -470,8 +495,8 @@
     card.dataset.mdfhUi = "1";
     card.tabIndex = 0;
     const sourceRange = sourceRangeForAnnotation(annotation);
-    const locatorLabel = sourceRangeLabel(sourceRange);
-    const anchorLabel = [locatorLabel, annotation.quote || t("reviewDocumentComment")].filter(Boolean).join(" · ");
+    const lineLabel = sourceRangeLabel(sourceRange);
+    const anchorLabel = [lineLabel, annotationQuote(annotation) || t("reviewDocumentComment")].filter(Boolean).join(" · ");
     card.innerHTML = `
       <p>${escapeHtml(annotation.comment)}</p>
       <small>${escapeHtml(anchorLabel)}</small>
@@ -486,14 +511,14 @@
   function createEditor() {
     const value = state.draftComment || "";
     const anchor = state.documentMode ? t("reviewDocumentComment") : state.selectedQuote;
-    const locatorLabel = sourceRangeLabel(state.selectedSourceRange);
+    const lineLabel = sourceRangeLabel(state.selectedSourceRange);
     const editor = document.createElement("form");
     editor.className = "mdfh-review-editor";
     editor.dataset.mdfhReviewEditor = "1";
     editor.dataset.mdfhUi = "1";
     editor.innerHTML = `
       <div class="mdfh-review-anchor">${escapeHtml(anchor || t("reviewDocumentComment"))}</div>
-      ${locatorLabel ? `<small>${escapeHtml(locatorLabel)}</small>` : ""}
+      ${lineLabel ? `<small>${escapeHtml(lineLabel)}</small>` : ""}
       <textarea class="mdfh-review-comment-input" data-mdfh-review-comment-input
         placeholder="${escapeAttr(t("reviewPlaceholder"))}" data-i18n-placeholder="reviewPlaceholder">${escapeHtml(value)}</textarea>
       <div class="mdfh-review-editor-actions">
@@ -512,7 +537,7 @@
     }
     const unplaced = annotations.filter((annotation) => {
       const status = state.anchorState.get(annotation.id);
-      return annotation.quote && status && status.warning && !sourceRangeForAnnotation(annotation);
+      return annotationQuote(annotation) && status && status.warning && !sourceRangeForAnnotation(annotation);
     });
     if (unplaced.length === 0) {
       els.unplaced.hidden = true;
@@ -528,7 +553,7 @@
           return `
             <div class="mdfh-review-unplaced-item">
               <p>${escapeHtml(annotation.comment)}</p>
-              <small>${escapeHtml(annotation.quote || t("reviewDocumentComment"))}</small>
+              <small>${escapeHtml(annotationQuote(annotation) || t("reviewDocumentComment"))}</small>
               <div class="mdfh-review-card-actions">
                 <button type="button" data-mdfh-review-edit="${escapeAttr(annotation.id)}" data-i18n="reviewEdit">${escapeHtml(t("reviewEdit"))}</button>
               </div>
@@ -541,7 +566,7 @@
   }
 
   function markSavedQuote(annotation) {
-    const ranges = findQuoteRanges(annotation.quote);
+    const ranges = findQuoteRanges(annotationQuote(annotation));
     if (ranges.length !== 1) {
       state.anchorState.set(annotation.id, {
         warning: ranges.length === 0 ? t("reviewUnderlineUnavailable") : t("reviewUnderlineAmbiguous"),
@@ -797,12 +822,8 @@
   }
 
   function editAnnotation(annotation) {
-    if (annotation.page !== page) {
-      window.location.href = `/${annotation.page}`;
-      return;
-    }
     state.editingId = annotation.id;
-    state.selectedQuote = annotation.quote || "";
+    state.selectedQuote = annotationQuote(annotation) || "";
     state.selectedSourceRange = sourceRangeForAnnotation(annotation);
     state.documentMode = isGlobalAnnotation(annotation);
     state.draftComment = annotation.comment || "";
@@ -818,8 +839,9 @@
       flashElement(sourceElement);
       return;
     }
-    if (annotation.quote) {
-      locateQuote(annotation.quote, annotation.id);
+    const quote = annotationQuote(annotation);
+    if (quote) {
+      locateQuote(quote, annotation.id);
       return;
     }
     const row = firstReviewRow();
@@ -984,8 +1006,9 @@
     const sourceRange = sourceRangeForAnnotation(annotation);
     return Boolean(
       annotation &&
-      (annotation.scope === "document" ||
-        (sourceRange && sourceRange.start_line === 0 && sourceRange.end_line === 0))
+      sourceRange &&
+      sourceRange.start_line === 0 &&
+      sourceRange.end_line === 0
     );
   }
 

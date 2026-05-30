@@ -130,21 +130,21 @@ For single-file inputs, `entry_page` uses the source file basename instead of
 ## Review Artifacts
 
 Review annotations are optional sidecar artifacts under `.md-for-human/review/`.
-They do not modify source Markdown or generated HTML. `annotations.json` is the
-machine-readable locator layer, and `review.md` is the generated summary agents
-should read first.
+They do not modify source Markdown or generated HTML. `review.md` is the
+generated summary agents should read first; `annotations.json` is the
+machine-readable fact source when exact coordinates are needed.
 
 The v2 protocol is intentionally small: each annotation records a location and a
 free-text comment. The primary location for agents is
 `source_path + source_range`, where `source_range` stores 1-based closed Markdown
-line numbers. `quote` is still stored as human-readable context and for browser
-underline recovery, but it is not the core locator. Whole-page comments use the
-reserved range `source_range: {"start_line": 0, "end_line": 0}`. Each saved
-annotation also records the current source SHA so review mode can archive old
-comments after the source Markdown changes. Deletions, insertions, replacements,
-and rationale all belong in the natural-language `comment`. Legacy v1 artifacts
-remain validatable for read-only compatibility, but new browser and agent
-workflows write `mdfh-review-v2`.
+line numbers. Whole-page comments use the reserved range
+`source_range: {"start_line": 0, "end_line": 0}`. Each saved annotation also
+records the current source SHA so review mode can archive old comments after the
+source Markdown changes. Deletions, insertions, replacements, and rationale all
+belong in the natural-language `comment`. The only persisted UI context is an
+optional `meta.quote` for human visual confirmation. The review protocol accepts
+only `schema_version: "mdfh-review-v2"`, but agents may omit bookkeeping fields;
+`--validate-review` will fill them.
 
 Validate review artifacts with:
 
@@ -152,8 +152,7 @@ Validate review artifacts with:
 md-for-human --validate-review path/to/output
 ```
 
-Add `--fail-on-warning` when ambiguous or missing quote anchors should fail
-automation.
+Add `--fail-on-warning` only when non-core diagnostics should fail automation.
 
 Use the browser review UI when a human wants paper-style annotations:
 
@@ -176,9 +175,10 @@ rendered for inspection, but raw Markdown scripts, inline event handlers, and
 that CSP and continue to preserve raw HTML as authored. The UI uses one marker,
 an underline/highlight anchor, plus a right comment rail. Rendered Markdown
 blocks carry `data-mdfh-source-lines`, letting the browser save the selected
-Markdown line range. The server rejects schema, page, and source-path hard
-failures before writing. Missing or repeated quote anchors are saved as
-diagnostics so the communication artifact remains available for agent handoff.
+Markdown line range. The server rejects schema, source-path, and source-range
+hard failures before writing. Missing or repeated quote anchors do not block
+handoff when a valid source range is present because line numbers are the
+primary locator.
 When a reviewed Markdown source changes, active comments for the previous source
 hash move to `.md-for-human/review/archive.json` and are removed from the active
 `review.md`.

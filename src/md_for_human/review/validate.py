@@ -9,30 +9,15 @@ from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from md_for_human.review import SCHEMA_VERSION_V1, SCHEMA_VERSION_V2, SUPPORTED_SCHEMA_VERSIONS
+from md_for_human.review import SCHEMA_VERSION
+from md_for_human.review.annotations import (
+    annotation_quote,
+    normalize_artifact_shape,
+)
 from md_for_human.review.archive import append_archived_annotations, split_inactive_annotations
 from md_for_human.review.artifacts import annotations_path, write_json_atomic
 from md_for_human.review.summary import write_review_summary
 
-ALLOWED_TYPES = {"comment", "suggest_delete", "suggest_insert", "suggest_replace"}
-V1_COMMON_REQUIRED_FIELDS = (
-    "id",
-    "type",
-    "page",
-    "source_path",
-    "quote",
-    "note",
-    "created_at",
-    "updated_at",
-)
-V2_COMMON_REQUIRED_FIELDS = (
-    "id",
-    "page",
-    "source_path",
-    "comment",
-    "created_at",
-    "updated_at",
-)
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 SPACE_BEFORE_EQUIVALENT_PUNCTUATION_RE = re.compile(r"\s+([，。；：！？、）》】」』）,.!?;:%％])")
 SPACE_AFTER_EQUIVALENT_PUNCTUATION_RE = re.compile(r"([（《【「『(])\s+")
@@ -77,8 +62,10 @@ def validate_review(output_dir: Path) -> ReviewValidationResult:
     if artifact is None:
         return ReviewValidationResult(errors, warnings, 0, 0, None)
     if isinstance(artifact, dict):
+        original_artifact = artifact
+        artifact = normalize_artifact_shape(artifact, documents)
         cleaned_artifact, archived_annotations = split_inactive_annotations(artifact, documents)
-        if cleaned_artifact != artifact or archived_annotations:
+        if cleaned_artifact != original_artifact or archived_annotations:
             append_archived_annotations(output_dir, archived_annotations)
             write_json_atomic(artifact_path, cleaned_artifact)
             artifact = cleaned_artifact
@@ -197,10 +184,8 @@ def validate_artifact(
     warnings: list[str],
 ) -> set[str]:
     schema_version = artifact.get("schema_version")
-    if schema_version not in SUPPORTED_SCHEMA_VERSIONS:
+    if schema_version != SCHEMA_VERSION:
         errors.append("annotations.json: schema_version missing or unsupported")
-    if schema_version == SCHEMA_VERSION_V1:
-        validate_created_by(artifact.get("created_by"), errors)
     source_manifest = artifact.get("source_manifest")
     if source_manifest != ".md-for-human/manifest.json":
         errors.append("annotations.json: source_manifest must be .md-for-human/manifest.json")
@@ -219,27 +204,20 @@ def validate_artifact(
             errors.append(f"{label}: annotation is not an object")
             continue
         annotation_id = validate_annotation_id(raw_annotation, label, seen_ids, errors)
-        if schema_version == SCHEMA_VERSION_V2:
-            validate_annotation_fields_v2(raw_annotation, annotation_id, errors)
-        else:
-            validate_annotation_fields_v1(raw_annotation, annotation_id, errors)
-        page = string_field(raw_annotation, "page")
+        validate_annotation_fields(raw_annotation, annotation_id, errors)
         source_path = string_field(raw_annotation, "source_path")
-        if page:
-            document = documents.get(page)
+        if source_path:
+            document = document_for_source_path(documents, source_path)
             if document is None:
-                errors.append(f'{annotation_id}: page "{page}" is not listed in manifest documents')
-            else:
-                pages_touched.add(page)
-                if source_path and source_path != document.source_path:
-                    errors.append(
-                        f'{annotation_id}: source_path "{source_path}" does not match '
-                        f'manifest documents for page "{page}"'
-                    )
-                should_validate_quote = schema_version != SCHEMA_VERSION_V2 or bool(
-                    string_field(raw_annotation, "quote")
+                errors.append(
+                    f'{annotation_id}: source_path "{source_path}" is not listed in manifest documents'
                 )
-                if should_validate_quote:
+            else:
+                page = document.page
+                pages_touched.add(page)
+                if annotation_quote(raw_annotation) and parse_source_range(
+                    raw_annotation.get("source_range")
+                ) is None:
                     validate_quote(
                         output_dir,
                         page,
@@ -253,16 +231,14 @@ def validate_artifact(
     return pages_touched
 
 
-def validate_created_by(value: object, errors: list[str]) -> None:
-    if not isinstance(value, dict):
-        errors.append("annotations.json: created_by missing or invalid")
-        return
-    kind = value.get("kind")
-    name = value.get("name")
-    if kind not in {"human", "agent"}:
-        errors.append("annotations.json: created_by.kind must be human or agent")
-    if not isinstance(name, str) or not name:
-        errors.append("annotations.json: created_by.name must be a non-empty string")
+def document_for_source_path(
+    documents: dict[str, ManifestDocument],
+    source_path: str,
+) -> ManifestDocument | None:
+    for document in documents.values():
+        if document.source_path == source_path:
+            return document
+    return None
 
 
 def validate_annotation_id(
@@ -281,57 +257,36 @@ def validate_annotation_id(
     return annotation_id
 
 
-def validate_annotation_fields_v1(
+def validate_annotation_fields(
     annotation: dict[str, Any],
     annotation_id: str,
     errors: list[str],
 ) -> None:
-    for field in V1_COMMON_REQUIRED_FIELDS:
+    for field in ("id", "source_path", "comment"):
         if not non_empty_string(annotation.get(field)):
             errors.append(f"{annotation_id}: required field {field} must be a non-empty string")
 
-    annotation_type = annotation.get("type")
-    if isinstance(annotation_type, str) and annotation_type not in ALLOWED_TYPES:
-        errors.append(f'{annotation_id}: unknown annotation type "{annotation_type}"')
-
-    if annotation_type == "suggest_insert":
-        placement = annotation.get("placement")
-        if placement not in {"before", "after"}:
-            errors.append(f"{annotation_id}: placement must be before or after")
-        if not non_empty_string(annotation.get("suggested_text")):
-            errors.append(
-                f"{annotation_id}: required field suggested_text must be a non-empty string"
-            )
-    elif annotation_type == "suggest_replace" and not non_empty_string(
-        annotation.get("suggested_text")
-    ):
-        errors.append(f"{annotation_id}: required field suggested_text must be a non-empty string")
-
-
-def validate_annotation_fields_v2(
-    annotation: dict[str, Any],
-    annotation_id: str,
-    errors: list[str],
-) -> None:
-    for field in V2_COMMON_REQUIRED_FIELDS:
-        if not non_empty_string(annotation.get(field)):
-            errors.append(f"{annotation_id}: required field {field} must be a non-empty string")
-
-    quote = string_field(annotation, "quote")
-    scope = string_field(annotation, "scope")
-    has_source_range = validate_source_range(annotation.get("source_range"), annotation_id, errors)
-    if not quote and scope != "document" and not has_source_range:
-        errors.append(
-            f'{annotation_id}: annotation must include quote, source_range, or scope "document"'
-        )
+    validate_source_range(annotation.get("source_range"), annotation_id, errors)
 
 
 def validate_source_range(value: object, annotation_id: str, errors: list[str]) -> bool:
     if value is None:
+        errors.append(f"{annotation_id}: source_range must be an object")
         return False
     if not isinstance(value, dict):
         errors.append(f"{annotation_id}: source_range must be an object")
         return False
+    if parse_source_range(value) is None:
+        errors.append(
+            f"{annotation_id}: source_range must be 0:0 or positive start_line and end_line"
+        )
+        return False
+    return True
+
+
+def parse_source_range(value: object) -> tuple[int, int] | None:
+    if not isinstance(value, dict):
+        return None
     start_line = value.get("start_line")
     end_line = value.get("end_line")
     if (
@@ -343,11 +298,8 @@ def validate_source_range(value: object, annotation_id: str, errors: list[str]) 
         or end_line < start_line
         or (start_line == 0 and end_line != 0)
     ):
-        errors.append(
-            f"{annotation_id}: source_range must be 0:0 or positive start_line and end_line"
-        )
-        return False
-    return True
+        return None
+    return start_line, end_line
 
 
 def validate_quote(
@@ -360,7 +312,7 @@ def validate_quote(
     errors: list[str],
     warnings: list[str],
 ) -> None:
-    quote = string_field(annotation, "quote")
+    quote = annotation_quote(annotation)
     if not quote:
         return
     if page not in page_text_cache:
@@ -386,26 +338,6 @@ def validate_quote(
         warnings.append(f"{annotation_id}: quote not found in {page}")
     elif match_count > 1:
         warnings.append(f"{annotation_id}: quote found multiple times in {page}")
-    validate_context(annotation, normalized_page_text, normalized_quote, annotation_id, warnings)
-
-
-def validate_context(
-    annotation: dict[str, Any],
-    normalized_page_text: str,
-    normalized_quote: str,
-    annotation_id: str,
-    warnings: list[str],
-) -> None:
-    context_before = normalize_anchor_text(string_field(annotation, "context_before"))
-    context_after = normalize_anchor_text(string_field(annotation, "context_after"))
-    if context_before:
-        before_anchor = normalize_anchor_text(f"{context_before} {normalized_quote}")
-        if before_anchor not in normalized_page_text:
-            warnings.append(f"{annotation_id}: context_before does not match nearby rendered text")
-    if context_after:
-        after_anchor = normalize_anchor_text(f"{normalized_quote} {context_after}")
-        if after_anchor not in normalized_page_text:
-            warnings.append(f"{annotation_id}: context_after does not match nearby rendered text")
 
 
 def extract_page_content_text(path: Path) -> PageContent | None:

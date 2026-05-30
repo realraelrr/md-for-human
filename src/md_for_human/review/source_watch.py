@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
-
-from md_for_human.review.archive import archive_annotation_status
 
 
 def snapshot_source_tree(source_input: Path) -> dict[str, tuple[int, int]]:
@@ -24,23 +21,3 @@ def snapshot_source_tree(source_input: Path) -> dict[str, tuple[int, int]]:
 def stat_signature(path: Path) -> tuple[int, int]:
     stat_result = path.lstat()
     return stat_result.st_mtime_ns, stat_result.st_size
-
-
-def stale_annotation_reason(
-    annotation: dict[str, Any],
-    documents: dict[str, Any],
-) -> str | None:
-    archive_reason, _current_source_sha256 = archive_annotation_status(annotation, documents)
-    if archive_reason == "source_removed":
-        page = annotation.get("page")
-        return f'page "{page}" is no longer listed in manifest documents'
-    if archive_reason == "source_path_changed":
-        page = annotation.get("page")
-        source_path = annotation.get("source_path")
-        document = documents.get(page) if isinstance(page, str) else None
-        expected_source_path = document.source_path if document is not None else ""
-        return (
-            f'source_path "{source_path}" no longer matches manifest source_path '
-            f'"{expected_source_path}" for page "{page}"'
-        )
-    return None

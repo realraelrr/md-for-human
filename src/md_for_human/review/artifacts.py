@@ -12,7 +12,6 @@ REVIEW_DIR = Path(".md-for-human") / "review"
 ANNOTATIONS_FILE = "annotations.json"
 SUMMARY_FILE = "review.md"
 ARCHIVE_FILE = "archive.json"
-STALE_ANNOTATIONS_FILE = "stale-annotations.json"
 
 
 def review_dir(output_dir: Path) -> Path:
@@ -25,10 +24,6 @@ def annotations_path(output_dir: Path) -> Path:
 
 def summary_path(output_dir: Path) -> Path:
     return review_dir(output_dir) / SUMMARY_FILE
-
-
-def stale_annotations_path(output_dir: Path) -> Path:
-    return review_dir(output_dir) / STALE_ANNOTATIONS_FILE
 
 
 def archive_path(output_dir: Path) -> Path:

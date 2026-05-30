@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from md_for_human.review import SCHEMA_VERSION
+from md_for_human.review.annotations import normalize_annotation_shape
 from md_for_human.review.artifacts import archive_path, write_json_atomic
 
 
@@ -24,7 +24,7 @@ def split_inactive_annotations(
         if not isinstance(annotation, dict):
             active_annotations.append(annotation)
             continue
-        archive_reason, current_source_sha256 = archive_annotation_status(
+        archive_reason = archive_annotation_status(
             annotation,
             documents,
         )
@@ -35,7 +35,6 @@ def split_inactive_annotations(
             archived_annotation(
                 annotation,
                 archive_reason=archive_reason,
-                current_source_sha256=current_source_sha256,
             )
         )
 
@@ -50,36 +49,29 @@ def split_inactive_annotations(
 def archive_annotation_status(
     annotation: dict[str, Any],
     documents: dict[str, Any],
-) -> tuple[str | None, str]:
-    page = annotation.get("page")
+) -> str | None:
     source_path = annotation.get("source_path")
-    if not isinstance(page, str) or not is_safe_relative_posix_path(page):
-        return None, ""
-    if source_path is not None and (
-        not isinstance(source_path, str) or not is_safe_relative_posix_path(source_path)
-    ):
-        return None, ""
-    document = documents.get(page)
+    if not isinstance(source_path, str) or not is_safe_relative_posix_path(source_path):
+        return None
+    documents_by_source_path = {
+        document.source_path: document for document in documents.values()
+    }
+    document = documents_by_source_path.get(source_path)
     if document is None:
-        return "source_removed", ""
-    if isinstance(source_path, str) and source_path != document.source_path:
-        return "source_path_changed", document.source_sha256
+        return "source_removed"
     source_sha256 = annotation.get("source_sha256")
     if isinstance(source_sha256, str) and source_sha256 != document.source_sha256:
-        return "source_changed", document.source_sha256
-    return None, document.source_sha256
+        return "source_changed"
+    return None
 
 
 def archived_annotation(
     annotation: dict[str, Any],
     *,
     archive_reason: str,
-    current_source_sha256: str,
 ) -> dict[str, Any]:
-    archived = dict(annotation)
-    archived["archived_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    archived = normalize_annotation_shape(annotation)
     archived["archive_reason"] = archive_reason
-    archived["current_source_sha256"] = current_source_sha256
     return archived
 
 

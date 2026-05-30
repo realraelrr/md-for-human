@@ -34,12 +34,12 @@ def _valid_artifact() -> dict[str, object]:
         "annotations": [
             {
                 "id": "ann_ui",
-                "page": "guide/setup.html",
                 "source_path": "guide/setup.md",
-                "quote": "Run the setup steps here.",
+                "source_range": {"start_line": 5, "end_line": 5},
                 "comment": "This should be clearer for handoff.",
-                "created_at": "2026-05-28T12:00:00Z",
-                "updated_at": "2026-05-28T12:00:00Z",
+                "meta": {
+                    "quote": "Run the setup steps here.",
+                },
             }
         ],
     }
@@ -92,12 +92,14 @@ def test_review_server_rejects_hard_failures_before_writing(
     invalid_artifact = _valid_artifact()
     annotations = invalid_artifact["annotations"]
     assert isinstance(annotations, list)
-    annotations[0]["page"] = "index.html/../synthetic.html"
+    annotations[0]["source_range"] = {"start_line": 9, "end_line": 5}
 
     with pytest.raises(ReviewServerError) as exc_info:
         app.save_annotations(token="test-token", artifact=invalid_artifact)
 
-    assert "is not listed in manifest documents" in "\n".join(exc_info.value.errors)
+    assert "source_range must be 0:0 or positive start_line and end_line" in "\n".join(
+        exc_info.value.errors
+    )
     assert artifact_path.read_text(encoding="utf-8") == original
     assert not (output_dir / ".md-for-human" / "review" / "review.md").exists()
 
@@ -130,24 +132,23 @@ def test_review_server_rejects_invalid_save_before_writing_archive(
     assert not archive_path(output_dir).exists()
 
 
-def test_review_server_rejects_legacy_schema_on_save(
+def test_review_server_rejects_unsupported_schema_on_save(
     sample_site_copy: Path,
     tmp_path: Path,
 ):
     output_dir = tmp_path / "output"
     build_site(sample_site_copy, output_dir)
     app = ReviewServerApp(output_dir, token="test-token")
-    legacy_artifact = _valid_artifact()
-    legacy_artifact["schema_version"] = "mdfh-review-v1"
-    legacy_artifact["created_by"] = {"kind": "human", "name": "local-reviewer"}
+    unsupported_artifact = _valid_artifact()
+    unsupported_artifact["schema_version"] = "mdfh-review-v1"
 
     with pytest.raises(ReviewServerError) as exc_info:
-        app.save_annotations(token="test-token", artifact=legacy_artifact)
+        app.save_annotations(token="test-token", artifact=unsupported_artifact)
 
     assert "browser review writes only mdfh-review-v2" in "\n".join(exc_info.value.errors)
 
 
-def test_review_server_saves_degraded_quote_without_returning_user_warnings(
+def test_review_server_saves_quote_as_the_only_optional_meta(
     sample_site_copy: Path,
     tmp_path: Path,
 ):
@@ -157,7 +158,7 @@ def test_review_server_saves_degraded_quote_without_returning_user_warnings(
     artifact = _valid_artifact()
     annotations = artifact["annotations"]
     assert isinstance(annotations, list)
-    annotations[0]["quote"] = "Missing quote anchor."
+    annotations[0]["meta"]["quote"] = "Missing quote anchor."
 
     response = app.save_annotations(token="test-token", artifact=artifact)
 
@@ -173,15 +174,14 @@ def test_review_server_saves_degraded_quote_without_returning_user_warnings(
     )
     saved_annotations = saved["annotations"]
     assert isinstance(saved_annotations, list)
-    assert saved_annotations[0]["quote"] == "Missing quote anchor."
-    assert saved_annotations[0]["locator"]["status"] == "degraded"
+    assert saved_annotations[0]["meta"] == {"quote": "Missing quote anchor."}
     assert (output_dir / ".md-for-human" / "review" / "review.md").exists()
 
     dev_result = validate_review(output_dir)
-    assert dev_result.warnings == ["ann_ui: quote not found in guide/setup.html"]
+    assert dev_result.warnings == []
 
 
-def test_review_server_refreshes_locator_metadata_for_existing_degraded_quotes(
+def test_review_server_strips_old_bookkeeping_metadata(
     sample_site_copy: Path,
     tmp_path: Path,
 ):
@@ -190,7 +190,7 @@ def test_review_server_refreshes_locator_metadata_for_existing_degraded_quotes(
     artifact = _valid_artifact()
     annotations = artifact["annotations"]
     assert isinstance(annotations, list)
-    annotations[0]["quote"] = "Missing quote anchor."
+    annotations[0]["meta"]["quote"] = "Missing quote anchor."
     write_json_atomic(
         output_dir / ".md-for-human" / "review" / "annotations.json",
         artifact,
@@ -201,13 +201,13 @@ def test_review_server_refreshes_locator_metadata_for_existing_degraded_quotes(
 
     state_annotations = state["artifact"]["annotations"]
     assert isinstance(state_annotations, list)
-    assert state_annotations[0]["locator"]["status"] == "degraded"
+    assert state_annotations[0]["meta"] == {"quote": "Missing quote anchor."}
     saved = json.loads(
         (output_dir / ".md-for-human" / "review" / "annotations.json").read_text(
             encoding="utf-8"
         )
     )
-    assert saved["annotations"][0]["locator"]["reason"] == "quote_not_found"
+    assert saved["annotations"][0]["meta"] == {"quote": "Missing quote anchor."}
 
 
 def test_review_server_valid_saved_artifact_passes_validate_review(
@@ -253,7 +253,7 @@ def test_review_server_saves_source_range_and_generates_line_summary(
     assert "## guide/setup.md:L5" in summary
 
 
-def test_review_server_normalizes_document_comment_to_l0_source_range(
+def test_review_server_keeps_quote_context_without_requiring_quote_match(
     sample_site_copy: Path,
     tmp_path: Path,
 ):
@@ -263,8 +263,31 @@ def test_review_server_normalizes_document_comment_to_l0_source_range(
     artifact = _valid_artifact()
     annotations = artifact["annotations"]
     assert isinstance(annotations, list)
-    annotations[0].pop("quote")
-    annotations[0]["scope"] = "document"
+    annotations[0]["source_range"] = {"start_line": 5, "end_line": 5}
+    annotations[0]["meta"]["quote"] = "Old wording that is not in rendered HTML."
+
+    response = app.save_annotations(token="test-token", artifact=artifact)
+    saved_annotations = response["artifact"]["annotations"]
+    assert isinstance(saved_annotations, list)
+
+    assert saved_annotations[0]["meta"] == {
+        "quote": "Old wording that is not in rendered HTML."
+    }
+    assert response["validation"]["warnings"] == []
+
+
+def test_review_server_saves_l0_global_comment(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    output_dir = tmp_path / "output"
+    build_site(sample_site_copy, output_dir)
+    app = ReviewServerApp(output_dir, token="test-token")
+    artifact = _valid_artifact()
+    annotations = artifact["annotations"]
+    assert isinstance(annotations, list)
+    annotations[0]["meta"].pop("quote")
+    annotations[0]["source_range"] = {"start_line": 0, "end_line": 0}
 
     response = app.save_annotations(token="test-token", artifact=artifact)
     saved_annotations = response["artifact"]["annotations"]
@@ -272,7 +295,6 @@ def test_review_server_normalizes_document_comment_to_l0_source_range(
     saved = saved_annotations[0]
 
     assert saved["source_range"] == {"start_line": 0, "end_line": 0}
-    assert "scope" not in saved
     assert isinstance(saved["source_sha256"], str)
     summary = (output_dir / ".md-for-human" / "review" / "review.md").read_text(
         encoding="utf-8"
@@ -307,7 +329,16 @@ def test_review_server_archives_annotations_after_source_hash_change(
     archived = archive["annotations"][0]
     assert archived["id"] == "ann_ui"
     assert archived["archive_reason"] == "source_changed"
-    assert archived["current_source_sha256"] != archived["source_sha256"]
+    assert set(archived) == {
+        "id",
+        "source_path",
+        "source_range",
+        "comment",
+        "source_sha256",
+        "meta",
+        "archive_reason",
+    }
+    assert archived["meta"] == {"quote": "Run the setup steps here."}
     summary = (output_dir / ".md-for-human" / "review" / "review.md").read_text(
         encoding="utf-8"
     )
@@ -443,11 +474,9 @@ def test_review_server_archives_annotations_after_source_path_mismatch(
     app = ReviewServerApp(output_dir, token="test-token")
     state = app.get_state(token="test-token")
 
-    assert state["artifact"]["annotations"] == []
-    archive = json.loads(archive_path(output_dir).read_text(encoding="utf-8"))
-    archived = archive["annotations"][0]
-    assert archived["id"] == "ann_ui"
-    assert archived["archive_reason"] == "source_path_changed"
+    assert state["artifact"]["annotations"]
+    meta = state["artifact"]["annotations"][0].get("meta", {})
+    assert "page" not in meta
     result = validate_review(output_dir)
     assert result.errors == []
 

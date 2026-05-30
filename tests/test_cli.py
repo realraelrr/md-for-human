@@ -17,19 +17,17 @@ def _write_review_artifact(output_dir: Path, *, quote: str) -> None:
     (review_dir / "annotations.json").write_text(
         json.dumps(
             {
-                "schema_version": "mdfh-review-v1",
-                "created_by": {"kind": "agent", "name": "codex"},
+                "schema_version": "mdfh-review-v2",
                 "source_manifest": ".md-for-human/manifest.json",
                 "annotations": [
                     {
                         "id": "ann_cli",
-                        "type": "comment",
-                        "page": "guide/setup.html",
                         "source_path": "guide/setup.md",
-                        "quote": quote,
-                        "note": "CLI validation should report this review artifact.",
-                        "created_at": "2026-05-28T12:00:00Z",
-                        "updated_at": "2026-05-28T12:00:00Z",
+                        "source_range": {"start_line": 5, "end_line": 5},
+                        "comment": "CLI validation should report this review artifact.",
+                        "meta": {
+                            "quote": quote,
+                        },
                     }
                 ],
             },
@@ -517,7 +515,7 @@ def test_main_validate_review_reports_success_without_rebuilding(
     assert stderr.getvalue() == ""
 
 
-def test_main_validate_review_fail_on_warning_returns_error(
+def test_main_validate_review_fail_on_warning_ignores_missing_quote_when_line_range_exists(
     sample_site_copy: Path,
     tmp_path: Path,
 ):
@@ -542,13 +540,13 @@ def test_main_validate_review_fail_on_warning_returns_error(
         stderr=stderr,
     )
 
-    assert result == 1
-    assert "Review validation: failed" in stdout.getvalue()
-    assert "Warnings: 1" in stdout.getvalue()
-    assert "ann_cli: quote not found in guide/setup.html" in stderr.getvalue()
+    assert result == 0
+    assert "Review validation: passed" in stdout.getvalue()
+    assert "Warnings: 0" in stdout.getvalue()
+    assert stderr.getvalue() == ""
 
 
-def test_main_validate_review_strict_fails_on_warning(
+def test_main_validate_review_strict_ignores_missing_quote_when_line_range_exists(
     sample_site_copy: Path,
     tmp_path: Path,
 ):
@@ -573,10 +571,10 @@ def test_main_validate_review_strict_fails_on_warning(
         stderr=stderr,
     )
 
-    assert result == 1
-    assert "Review validation: failed" in stdout.getvalue()
-    assert "Warnings: 1" in stdout.getvalue()
-    assert "Failing because review warnings were emitted." in stderr.getvalue()
+    assert result == 0
+    assert "Review validation: passed" in stdout.getvalue()
+    assert "Warnings: 0" in stdout.getvalue()
+    assert stderr.getvalue() == ""
 
 
 def test_main_review_serves_existing_output_without_rebuilding(

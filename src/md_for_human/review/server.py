@@ -12,6 +12,7 @@ from typing import Any, Callable, TextIO
 from urllib.parse import unquote, urlsplit
 
 from md_for_human.review import SCHEMA_VERSION
+from md_for_human.review.annotations import normalize_artifact_shape
 from md_for_human.builder import build_site_preserving_review
 from md_for_human.review.archive import append_archived_annotations, split_inactive_annotations
 from md_for_human.review.client_assets import inject_review_client
@@ -19,10 +20,8 @@ from md_for_human.review.constants import LOCAL_REVIEW_HOST, REVIEW_API_PREFIX, 
 from md_for_human.review.artifacts import (
     annotations_path,
     empty_artifact,
-    stale_annotations_path,
     write_json_atomic,
 )
-from md_for_human.review.locators import add_locator_metadata
 from md_for_human.review.source_watch import snapshot_source_tree
 from md_for_human.review.summary import write_review_summary
 from md_for_human.review.validate import (
@@ -122,7 +121,6 @@ class ReviewServerApp:
                 "review artifact has hard validation errors",
                 errors=result.errors,
             )
-        writable_artifact = add_locator_metadata(self.output_dir, writable_artifact)
         append_archived_annotations(self.output_dir, archived_annotations)
         write_json_atomic(annotations_path(self.output_dir), writable_artifact)
         summary_path = write_review_summary(self.output_dir, writable_artifact)
@@ -182,10 +180,11 @@ class ReviewServerApp:
         if active_artifact != loaded_artifact:
             write_json_atomic(annotations_path(self.output_dir), active_artifact)
             write_review_summary(self.output_dir, active_artifact)
-        return self._refresh_locator_metadata(active_artifact)
+        return active_artifact
 
     def _normalize_review_artifact(self, artifact: dict[str, Any]) -> dict[str, Any]:
-        if artifact.get("schema_version") != SCHEMA_VERSION:
+        schema_version = artifact.get("schema_version")
+        if schema_version is not None and schema_version != SCHEMA_VERSION:
             return artifact
         annotations = artifact.get("annotations")
         if not isinstance(annotations, list):
@@ -197,27 +196,7 @@ class ReviewServerApp:
         if manifest_errors:
             return artifact
 
-        normalized_artifact = dict(artifact)
-        normalized_annotations: list[Any] = []
-        changed = False
-        for annotation in annotations:
-            if not isinstance(annotation, dict):
-                normalized_annotations.append(annotation)
-                continue
-            normalized = dict(annotation)
-            page = normalized.get("page")
-            document = documents.get(page) if isinstance(page, str) else None
-            if normalized.get("scope") == "document" and "source_range" not in normalized:
-                normalized["source_range"] = {"start_line": 0, "end_line": 0}
-                normalized.pop("scope", None)
-            if document is not None and "source_sha256" not in normalized:
-                normalized["source_sha256"] = document.source_sha256
-            if normalized != annotation:
-                changed = True
-            normalized_annotations.append(normalized)
-        if changed:
-            normalized_artifact["annotations"] = normalized_annotations
-        return normalized_artifact
+        return normalize_artifact_shape(artifact, documents)
 
     def _archive_inactive_annotations(
         self,
@@ -262,44 +241,6 @@ class ReviewServerApp:
                 errors=manifest_errors,
             )
         return documents
-
-    def _append_stale_annotations(self, stale_annotations: list[dict[str, Any]]) -> None:
-        path = stale_annotations_path(self.output_dir)
-        existing_errors: list[str] = []
-        existing = load_json_file(path, existing_errors) if path.exists() else None
-        if isinstance(existing, dict) and isinstance(existing.get("annotations"), list):
-            combined = dict(existing)
-            combined_annotations = [
-                item for item in existing["annotations"] if isinstance(item, dict)
-            ]
-        else:
-            combined = {
-                "schema_version": SCHEMA_VERSION,
-                "source_manifest": ".md-for-human/manifest.json",
-                "annotations": [],
-            }
-            combined_annotations = []
-
-        seen_ids = {
-            item.get("id") for item in combined_annotations if isinstance(item.get("id"), str)
-        }
-        for annotation in stale_annotations:
-            annotation_id = annotation.get("id")
-            if isinstance(annotation_id, str) and annotation_id in seen_ids:
-                continue
-            combined_annotations.append(annotation)
-            if isinstance(annotation_id, str):
-                seen_ids.add(annotation_id)
-        combined["annotations"] = combined_annotations
-        write_json_atomic(path, combined)
-
-    def _refresh_locator_metadata(self, artifact: dict[str, Any]) -> dict[str, Any]:
-        if artifact.get("schema_version") != SCHEMA_VERSION:
-            return artifact
-        refreshed_artifact = add_locator_metadata(self.output_dir, artifact)
-        if refreshed_artifact != artifact:
-            write_json_atomic(annotations_path(self.output_dir), refreshed_artifact)
-        return refreshed_artifact
 
     def _site_path_from_url(self, relative_url_path: str) -> PurePosixPath:
         raw_path = unquote(urlsplit(relative_url_path).path).lstrip("/")
