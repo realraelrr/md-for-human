@@ -57,7 +57,16 @@ md-for-human tests/fixtures/sample_site -o /tmp/md-for-human-sample-site --overw
 md-for-human --validate-review /tmp/md-for-human-sample-site
 ```
 
-为已有生成站点启动本地浏览器审阅 UI：
+构建并启动带源文件热加载的本地浏览器审阅 UI：
+
+```bash
+md-for-human path/to/agent-output -o /tmp/md-for-human-review --review --overwrite
+```
+
+当 `--review` 构建到已存在的自定义输出目录时，需要加 `--overwrite`。
+用 `--review OUTPUT_DIR` 审阅已有生成站点时不会重新构建，也不需要 `--overwrite`。
+
+为已有生成站点启动不带源文件热加载的本地浏览器审阅 UI：
 
 ```bash
 md-for-human --review /tmp/md-for-human-sample-site
