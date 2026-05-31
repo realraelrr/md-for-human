@@ -107,7 +107,7 @@ Browser opened: yes/no
 {
   "manifest_schema_version": "mdfh-manifest-v1",
   "tool_name": "md-for-human",
-  "tool_version": "0.2.0",
+  "tool_version": "0.2.1",
   "entry_page": "index.html",
   "pages": ["index.html", "guide/setup.html"],
   "documents": [

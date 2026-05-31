@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "md-for-human"
-version = "0.2.0"
+version = "0.2.1"
 description = "Turn agent-generated Markdown into human-friendly HTML reading sites."
 requires-python = ">=3.11"
 license = "MIT"

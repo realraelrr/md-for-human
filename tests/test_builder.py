@@ -8,6 +8,7 @@ import pytest
 
 from md_for_human.builder import build_site, build_site_preserving_review
 from md_for_human.discovery import DiscoveryError
+from md_for_human.protocol import TOOL_VERSION
 
 
 def test_build_site_generates_html_and_copies_only_referenced_assets(
@@ -141,7 +142,7 @@ def test_build_site_writes_manifest_for_agent_audit(sample_site_copy: Path, tmp_
     assert result.manifest_path == manifest_path
     assert manifest["manifest_schema_version"] == "mdfh-manifest-v1"
     assert manifest["tool_name"] == "md-for-human"
-    assert manifest["tool_version"] == "0.2.0"
+    assert manifest["tool_version"] == TOOL_VERSION
     assert manifest["entry_page"] == "index.html"
     assert manifest["pages"] == result.pages
     assert manifest["copied_assets"] == ["images/diagram.png"]
