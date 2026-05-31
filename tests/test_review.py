@@ -287,6 +287,42 @@ def test_validate_review_rejects_missing_and_invalid_manifest_source_line_count(
     assert not (output_dir / ".md-for-human" / "review" / "review.md").exists()
 
 
+def test_validate_review_rejects_missing_and_invalid_manifest_protocol_metadata(
+    sample_site_copy: Path,
+    tmp_path: Path,
+):
+    output_dir = tmp_path / "output"
+    build_site(sample_site_copy, output_dir)
+    manifest_path = output_dir / ".md-for-human" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    del manifest["manifest_schema_version"]
+    manifest["tool_name"] = "other-tool"
+    manifest["tool_version"] = ""
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    _write_review_artifact(
+        output_dir,
+        [
+            {
+                "id": "ann_setup",
+                "source_path": "guide/setup.md",
+                "source_range": {"start_line": 5, "end_line": 5},
+                "comment": "A valid annotation should still reject a bad manifest.",
+            },
+        ],
+    )
+
+    result = validate_review(output_dir)
+
+    assert (
+        "manifest.json: manifest_schema_version missing or unsupported"
+        in result.errors
+    )
+    assert 'manifest.json: tool_name must be "md-for-human"' in result.errors
+    assert "manifest.json: tool_version missing or invalid" in result.errors
+    assert result.summary_path is None
+    assert not (output_dir / ".md-for-human" / "review" / "review.md").exists()
+
+
 def test_validate_review_does_not_update_existing_summary_on_hard_errors(
     sample_site_copy: Path,
     tmp_path: Path,

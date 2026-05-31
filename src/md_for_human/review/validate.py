@@ -9,6 +9,7 @@ from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from md_for_human.protocol import MANIFEST_SCHEMA_VERSION, TOOL_NAME
 from md_for_human.review import SCHEMA_VERSION
 from md_for_human.review.annotations import (
     annotation_quote,
@@ -149,6 +150,8 @@ def parse_manifest_documents(
             errors.append("manifest.json: top-level object is not an object")
         return documents_by_page
 
+    validate_manifest_protocol_metadata(manifest, errors)
+
     documents = manifest.get("documents")
     if not isinstance(documents, list):
         errors.append("manifest.json: documents missing or not an array")
@@ -193,6 +196,16 @@ def parse_manifest_documents(
         )
 
     return documents_by_page
+
+
+def validate_manifest_protocol_metadata(manifest: dict[str, Any], errors: list[str]) -> None:
+    if manifest.get("manifest_schema_version") != MANIFEST_SCHEMA_VERSION:
+        errors.append("manifest.json: manifest_schema_version missing or unsupported")
+    if manifest.get("tool_name") != TOOL_NAME:
+        errors.append(f'manifest.json: tool_name must be "{TOOL_NAME}"')
+    tool_version = manifest.get("tool_version")
+    if not isinstance(tool_version, str) or not tool_version:
+        errors.append("manifest.json: tool_version missing or invalid")
 
 
 def validate_artifact(

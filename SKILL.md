@@ -70,9 +70,9 @@ md-for-human --review OUTPUT_DIR
 The UI is a protocol client over the generated site. It lets the reviewer select
 rendered text, write one free-text comment, and save to the same
 `annotations.json`. The only visual marker is an underline/highlight anchor plus
-the right comment rail. Behind that visual anchor, the UI records the full
-Markdown source line range covered by the selection when available. If no text is
-selected, the UI writes a whole-document comment with
+inline and unplaced comment controls. Behind that visual anchor, the UI records
+the full Markdown source line range covered by the selection when available. If
+no text is selected, the UI writes a whole-document comment with
 `source_range: {"start_line": 0, "end_line": 0}`.
 
 The review server binds to `127.0.0.1`, uses a per-session token for
@@ -82,7 +82,8 @@ rewrites source Markdown or generated HTML. Review HTML responses use a
 nonce-based Content Security Policy so only md-for-human's own inline scripts
 and styles can execute; Markdown raw scripts, inline event handlers, and
 `javascript:` links remain visible in the rendered document but are blocked by
-the browser in review mode. Plain static builds do not add this CSP.
+the browser in review mode. Plain static builds do not add this CSP and should
+be treated as trusted local content, not as sanitized HTML.
 
 `annotations.json` is the fact source; `review.md` is generated from it. Do not
 edit `review.md` manually. Agents should read `review.md` first. Read
@@ -111,6 +112,8 @@ locator. Manifest `documents[]` entries include `source_line_count`, and review
 validation rejects ranges that point past the source Markdown. Review mode
 archives old active comments when the source Markdown changes.
 
+The full manifest and review protocol contract lives in `docs/protocol.md`.
+
 ## Setup
 
 Create the project environment if it is missing:
@@ -137,6 +140,7 @@ Before claiming completion:
 - reported entry page exists and starts with `<!DOCTYPE html>`
 - entry page contains site navigation
 - `.md-for-human/manifest.json` exists in the output directory
+- manifest has `manifest_schema_version: "mdfh-manifest-v1"`, `tool_name: "md-for-human"`, and a non-empty `tool_version`
 - manifest `documents` maps reviewable pages to source paths, source line counts, and source sha256 values
 - `--verify` passed if you used it, or `--strict` passed for agent handoff
 - `--validate-review` passed if you are handing back review annotations

@@ -10,7 +10,16 @@
 
 ## 安装
 
-创建并激活项目环境：
+当前安装路径：
+
+| 使用场景 | 命令 | 状态 |
+| --- | --- | --- |
+| 推荐本地使用 | `conda env create -f environment.yml`，然后 `conda activate md-for-human` | 支持从仓库 checkout 使用 |
+| 开发安装 | `python -m pip install -e ".[dev]" --no-build-isolation` | 只支持在已激活的 conda 或 virtualenv 中运行 |
+| 不激活环境运行 | `conda run -n md-for-human md-for-human ...` | 创建环境后支持 |
+| PyPI / pipx / uv tool | `pipx install md-for-human` 或 `uv tool install md-for-human` | 项目发布到 PyPI 前不可用 |
+
+从 checkout 创建并激活项目环境：
 
 ```bash
 conda env create -f environment.yml
@@ -24,6 +33,9 @@ python -m pip install -e ".[dev]" --no-build-isolation
 ```
 
 不要对系统 Python 执行 editable install。
+
+当前 PyPI 项目 URL 返回 404：
+<https://pypi.org/pypi/md-for-human/json>。
 
 ## 使用
 
@@ -93,6 +105,9 @@ Browser opened: yes/no
 
 ```json
 {
+  "manifest_schema_version": "mdfh-manifest-v1",
+  "tool_name": "md-for-human",
+  "tool_version": "0.2.0",
   "entry_page": "index.html",
   "pages": ["index.html", "guide/setup.html"],
   "documents": [
@@ -114,7 +129,8 @@ Browser opened: yes/no
 }
 ```
 
-单文件输入的 `entry_page` 使用源文件 basename，而不是 `index.html`。
+单文件输入的 `entry_page` 使用源文件 basename，而不是 `index.html`。完整的
+manifest 与 review artifact 契约见 [`docs/protocol.md`](docs/protocol.md)。
 
 ## Review Artifacts
 
@@ -122,16 +138,10 @@ Browser opened: yes/no
 Markdown 或生成的 HTML。`review.md` 是 agent 应先阅读的派生摘要；
 `annotations.json` 是需要精确坐标时使用的机器可读事实源。
 
-v2 协议刻意保持很小：每条 annotation 只记录位置和一段自由文本评论。
-agent 的主定位方式是 `source_path + source_range`，其中 `source_range`
-保存 1-based 闭区间 Markdown 行号。整页评论使用保留范围
-`source_range: {"start_line": 0, "end_line": 0}`。每条保存的 annotation
-还记录当前源文件 SHA，便于 review mode 在源 Markdown 变化后归档旧评论。
-manifest 的 `documents[]` 条目包含 `source_line_count`；`--validate-review`
-会拒绝越过源文件行数的 annotation range。删除、插入、替换和理由都写在自然语言
-`comment` 中。唯一持久化的 UI 上下文是可选的 `meta.quote`，用于人工视觉确认。
-review 协议只接受 `schema_version: "mdfh-review-v2"`，但 agent 可以省略
-bookkeeping 字段；`--validate-review` 会补齐这些字段。
+v2 协议刻意保持很小：每条 annotation 只记录 Markdown 位置和一段自由文本评论。
+agent 应把 `source_path + source_range` 作为主定位方式。整页评论使用保留范围
+`source_range: {"start_line": 0, "end_line": 0}`。完整字段定义、校验规则和
+agent 消费规则见 [`docs/protocol.md`](docs/protocol.md)。
 
 验证审阅 artifact：
 
@@ -154,13 +164,24 @@ review HTML 响应使用基于 nonce 的 Content Security Policy，只允许
 md-for-human 自己的 inline script 和 style 执行；Markdown raw HTML 仍会渲染
 以便检查，但 raw Markdown scripts、inline event handlers 和 `javascript:`
 links 会在 review mode 中被浏览器阻止。普通静态构建不会添加该 CSP。
+UI 使用 underline/highlight anchor，以及 inline/unplaced 评论控件。渲染后的
+Markdown block 带有 `data-mdfh-source-lines`，浏览器据此保存选中的 Markdown
+行号范围。
 
 当被审阅的 Markdown 源发生变化时，旧 source hash 对应的 active comments
 会移动到 `.md-for-human/review/archive.json`，并从 active `review.md` 中移除。
 
+## 视觉证据
+
+这些截图由示例 fixture 生成，使用下方开发部分记录的同一个 strict 示例命令。
+
+![阅读站点](docs/assets/reading-site.png)
+
+![Review mode](docs/assets/review-mode.png)
+
 ## Agent Skill
 
-Agent 执行协议在 [`SKILL.md`](SKILL.md)。`.codex/skills/md-for-human/` 和 `.claude/skills/md-for-human/` 下的入口都指向该文件。
+Agent 运行说明在 [`SKILL.md`](SKILL.md)。协议契约在 [`docs/protocol.md`](docs/protocol.md)。`.codex/skills/md-for-human/` 和 `.claude/skills/md-for-human/` 下的入口都指向 `SKILL.md`。
 
 ## 开发
 
@@ -181,6 +202,9 @@ md-for-human --help
 CLI 会拒绝把输出路径设为输入路径、输入树内部或输入路径祖先。自定义输出路径需要 `--overwrite`。
 
 只复制被引用的本地资产，包括 Markdown 链接/图片和 raw HTML `href`/`src` 目标。缺失、symlink、越过输入根目录或非文件资产会产生 warning。
+
+普通静态 HTML 输出是可信本地内容，不是 HTML sanitizer。不要打开由不可信
+Markdown 生成的站点，除非使用 review mode 或外部 sandbox。
 
 ## License
 

@@ -1,3 +1,5 @@
 from __future__ import annotations
 
-SCHEMA_VERSION = "mdfh-review-v2"
+from md_for_human.protocol import REVIEW_SCHEMA_VERSION
+
+SCHEMA_VERSION = REVIEW_SCHEMA_VERSION

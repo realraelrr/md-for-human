@@ -18,7 +18,16 @@ It does not rewrite, summarize, or embellish the Markdown.
 
 ## Install
 
-Create and activate the project environment:
+Current install paths:
+
+| Use case | Command | Status |
+| --- | --- | --- |
+| Recommended local use | `conda env create -f environment.yml` then `conda activate md-for-human` | Supported from a repository checkout |
+| Development install | `python -m pip install -e ".[dev]" --no-build-isolation` | Supported inside an activated conda or virtualenv |
+| Run without activation | `conda run -n md-for-human md-for-human ...` | Supported after environment creation |
+| PyPI / pipx / uv tool | `pipx install md-for-human` or `uv tool install md-for-human` | Not available until the project is published to PyPI |
+
+Create and activate the project environment from a checkout:
 
 ```bash
 conda env create -f environment.yml
@@ -32,6 +41,9 @@ python -m pip install -e ".[dev]" --no-build-isolation
 ```
 
 Do not run editable install against system Python.
+
+The PyPI project URL currently returns 404:
+<https://pypi.org/pypi/md-for-human/json>.
 
 ## Usage
 
@@ -105,6 +117,9 @@ Every build writes `.md-for-human/manifest.json` inside the output directory:
 
 ```json
 {
+  "manifest_schema_version": "mdfh-manifest-v1",
+  "tool_name": "md-for-human",
+  "tool_version": "0.2.0",
   "entry_page": "index.html",
   "pages": ["index.html", "guide/setup.html"],
   "documents": [
@@ -127,7 +142,8 @@ Every build writes `.md-for-human/manifest.json` inside the output directory:
 ```
 
 For single-file inputs, `entry_page` uses the source file basename instead of
-`index.html`.
+`index.html`. The full manifest and review artifact contract is documented in
+[`docs/protocol.md`](docs/protocol.md).
 
 ## Review Artifacts
 
@@ -136,19 +152,12 @@ They do not modify source Markdown or generated HTML. `review.md` is the
 generated summary agents should read first; `annotations.json` is the
 machine-readable fact source when exact coordinates are needed.
 
-The v2 protocol is intentionally small: each annotation records a location and a
-free-text comment. The primary location for agents is
-`source_path + source_range`, where `source_range` stores 1-based closed Markdown
-line numbers. Whole-page comments use the reserved range
-`source_range: {"start_line": 0, "end_line": 0}`. Each saved annotation also
-records the current source SHA so review mode can archive old comments after the
-source Markdown changes. Manifest `documents[]` entries include
-`source_line_count`; `--validate-review` rejects annotation ranges that point
-past the source file. Deletions, insertions, replacements, and rationale all
-belong in the natural-language `comment`. The only persisted UI context is an
-optional `meta.quote` for human visual confirmation. The review protocol accepts
-only `schema_version: "mdfh-review-v2"`, but agents may omit bookkeeping fields;
-`--validate-review` will fill them.
+The v2 protocol is intentionally small: each annotation records a Markdown
+location and one free-text comment. Agents should treat
+`source_path + source_range` as the primary locator. Whole-page comments use
+`source_range: {"start_line": 0, "end_line": 0}`. Full field definitions,
+validation rules, and agent consumption rules live in
+[`docs/protocol.md`](docs/protocol.md).
 
 Validate review artifacts with:
 
@@ -176,22 +185,32 @@ Review HTML responses use a nonce-based Content Security Policy that allows only
 md-for-human's own inline scripts and styles to run; Markdown raw HTML remains
 rendered for inspection, but raw Markdown scripts, inline event handlers, and
 `javascript:` links are blocked in review mode. Plain static builds do not add
-that CSP and continue to preserve raw HTML as authored. The UI uses one marker,
-an underline/highlight anchor, plus a right comment rail. Rendered Markdown
-blocks carry `data-mdfh-source-lines`, letting the browser save the selected
-Markdown line range. The server rejects schema, source-path, and source-range
-hard failures before writing. Missing or repeated quote anchors do not block
-handoff when a valid source range is present because line numbers are the
-primary locator.
+that CSP and continue to preserve raw HTML as authored. The UI uses an
+underline/highlight anchor plus inline and unplaced comment controls. Rendered
+Markdown blocks carry `data-mdfh-source-lines`, letting the browser save the
+selected Markdown line range. The server rejects schema, source-path, and
+source-range hard failures before writing. Missing or repeated quote anchors do
+not block handoff when a valid source range is present because line numbers are
+the primary locator.
 When a reviewed Markdown source changes, active comments for the previous source
 hash move to `.md-for-human/review/archive.json` and are removed from the active
 `review.md`.
 
+## Visual Evidence
+
+These screenshots are generated from the sample fixture with the same strict
+sample command documented below.
+
+![Reading site](docs/assets/reading-site.png)
+
+![Review mode](docs/assets/review-mode.png)
+
 ## Agent Skill
 
-The agent-facing protocol lives in [`SKILL.md`](SKILL.md). Codex and Claude skill
+The agent-facing runbook lives in [`SKILL.md`](SKILL.md). The protocol contract
+lives in [`docs/protocol.md`](docs/protocol.md). Codex and Claude skill
 entrypoints in `.codex/skills/md-for-human/` and `.claude/skills/md-for-human/`
-point to that file.
+point to `SKILL.md`.
 
 ## Development
 
@@ -216,6 +235,10 @@ an ancestor of the input. Custom output paths require `--overwrite`.
 Only referenced local assets are copied. Markdown links/images and raw HTML
 `href`/`src` targets are included. Missing, symlinked, out-of-root, and non-file
 assets produce warnings.
+
+Plain static HTML output is trusted local content, not an HTML sanitizer. Do not
+open generated sites from untrusted Markdown unless using review mode or an
+external sandbox.
 
 ## License
 

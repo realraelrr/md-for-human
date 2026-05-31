@@ -12,6 +12,7 @@ from shutil import copy2
 from md_for_human.discovery import discover_site
 from md_for_human.models import Document, RenderedPage, SiteManifest
 from md_for_human.navigation import build_navigation
+from md_for_human.protocol import MANIFEST_SCHEMA_VERSION, TOOL_NAME, TOOL_VERSION
 from md_for_human.render_markdown import render_document
 from md_for_human.template import render_page_html
 from md_for_human.urls import encode_url_path
@@ -198,6 +199,9 @@ def write_agent_manifest(
     manifest_path.write_text(
         json.dumps(
             {
+                "manifest_schema_version": MANIFEST_SCHEMA_VERSION,
+                "tool_name": TOOL_NAME,
+                "tool_version": TOOL_VERSION,
                 "entry_page": entry_page,
                 "pages": pages,
                 "documents": [
