@@ -10,7 +10,7 @@ from pathlib import Path, PurePosixPath
 from shutil import copy2
 
 from md_for_human.discovery import discover_site
-from md_for_human.models import Document, RenderedPage, SiteManifest
+from md_for_human.models import Document, NavNode, RenderedPage, SiteManifest
 from md_for_human.navigation import build_navigation
 from md_for_human.protocol import MANIFEST_SCHEMA_VERSION, TOOL_NAME, TOOL_VERSION
 from md_for_human.render_markdown import render_document
@@ -30,26 +30,71 @@ class BuildResult:
 
 def build_site(input_dir: Path, output_dir: Path) -> BuildResult:
     manifest = discover_site(Path(input_dir), Path(output_dir))
-    rendered_pages = {
-        document.output_path: render_document(document, manifest) for document in manifest.documents
-    }
+    rendered_pages = render_documents(manifest)
     nav_tree, ordered_pages = build_navigation(manifest, rendered_pages)
+    warnings = collect_warnings(manifest, ordered_pages)
 
+    manifest.output_dir.mkdir(parents=True, exist_ok=True)
+    pages = write_rendered_pages(manifest, ordered_pages, nav_tree, rendered_pages)
+    copied_assets = copy_referenced_assets(manifest, ordered_pages, warnings)
+
+    entry_output_path = manifest.entry_output_path
+    if manifest.entry_document is None:
+        write_synthetic_landing_page(manifest, ordered_pages, nav_tree, rendered_pages)
+        pages.insert(0, entry_output_path.as_posix())
+
+    manifest_path = write_agent_manifest(
+        manifest.output_dir,
+        entry_output_path.as_posix(),
+        pages,
+        copied_assets,
+        warnings,
+        manifest.documents,
+    )
+
+    return BuildResult(
+        output_dir=manifest.output_dir,
+        entry_page=manifest.output_dir / entry_output_path,
+        warnings=warnings,
+        pages=pages,
+        copied_assets=copied_assets,
+        manifest_path=manifest_path,
+    )
+
+
+def render_documents(manifest: SiteManifest) -> dict[PurePosixPath, RenderedPage]:
+    return {
+        document.output_path: render_document(document, manifest)
+        for document in manifest.documents
+    }
+
+
+def collect_warnings(manifest: SiteManifest, ordered_pages: list[RenderedPage]) -> list[str]:
     warnings = list(manifest.warnings)
     for page in ordered_pages:
         warnings.extend(page.warnings)
+    return warnings
 
-    manifest.output_dir.mkdir(parents=True, exist_ok=True)
+
+def write_rendered_pages(
+    manifest: SiteManifest,
+    ordered_pages: list[RenderedPage],
+    nav_tree: list[NavNode],
+    rendered_pages: dict[PurePosixPath, RenderedPage],
+) -> list[str]:
     pages: list[str] = []
     for page in ordered_pages:
-        page.full_html = render_page_html(
-            page,
-            nav_tree,
-            rendered_pages,
-        )
+        page.full_html = render_page_html(page, nav_tree, rendered_pages)
         write_output_file(manifest.output_dir / page.document.output_path, page.full_html)
         pages.append(page.document.output_path.as_posix())
+    return pages
 
+
+def copy_referenced_assets(
+    manifest: SiteManifest,
+    ordered_pages: list[RenderedPage],
+    warnings: list[str],
+) -> list[str]:
     referenced_assets = {
         asset_path for page in ordered_pages for asset_path in page.referenced_assets
     }
@@ -73,34 +118,20 @@ def build_site(input_dir: Path, output_dir: Path) -> BuildResult:
         destination_asset.parent.mkdir(parents=True, exist_ok=True)
         copy2(source_asset, destination_asset)
         copied_assets.append(asset_label)
+    return copied_assets
 
-    entry_output_path = manifest.entry_output_path
-    if manifest.entry_document is None:
-        synthetic_page = build_synthetic_landing_page(manifest, ordered_pages)
-        synthetic_page.full_html = render_page_html(
-            synthetic_page,
-            nav_tree,
-            rendered_pages,
-        )
-        write_output_file(manifest.output_dir / entry_output_path, synthetic_page.full_html)
-        pages.insert(0, entry_output_path.as_posix())
 
-    manifest_path = write_agent_manifest(
-        manifest.output_dir,
-        entry_output_path.as_posix(),
-        pages,
-        copied_assets,
-        warnings,
-        manifest.documents,
-    )
-
-    return BuildResult(
-        output_dir=manifest.output_dir,
-        entry_page=manifest.output_dir / entry_output_path,
-        warnings=warnings,
-        pages=pages,
-        copied_assets=copied_assets,
-        manifest_path=manifest_path,
+def write_synthetic_landing_page(
+    manifest: SiteManifest,
+    ordered_pages: list[RenderedPage],
+    nav_tree: list[NavNode],
+    rendered_pages: dict[PurePosixPath, RenderedPage],
+) -> None:
+    synthetic_page = build_synthetic_landing_page(manifest, ordered_pages)
+    synthetic_page.full_html = render_page_html(synthetic_page, nav_tree, rendered_pages)
+    write_output_file(
+        manifest.output_dir / manifest.entry_output_path,
+        synthetic_page.full_html,
     )
 
 

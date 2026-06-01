@@ -1,11 +1,8 @@
 from __future__ import annotations
 
 import html
-import posixpath
 import unicodedata
-from pathlib import PurePosixPath
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
 
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
@@ -14,9 +11,8 @@ from pygments.formatters import HtmlFormatter
 from pygments.lexers import TextLexer, get_lexer_by_name
 from pygments.util import ClassNotFound
 
-from md_for_human.html_targets import rewrite_local_targets
+from md_for_human.link_targets import LinkTargetRewriter
 from md_for_human.models import Document, RenderedPage, SiteManifest
-from md_for_human.urls import decode_url_path, relative_output_link
 
 
 def render_document(document: Document, manifest: SiteManifest) -> RenderedPage:
@@ -26,13 +22,7 @@ def render_document(document: Document, manifest: SiteManifest) -> RenderedPage:
     source_text = document.source_path.read_text(encoding="utf-8")
     tokens = parser.parse(source_text)
     add_source_line_attrs(tokens)
-    document_lookup = {
-        item.relative_source_path.as_posix().lower(): item for item in manifest.documents
-    }
-    document_output_lookup = {item.output_path.as_posix().lower() for item in manifest.documents}
-    document_output_lookup.add(manifest.entry_output_path.as_posix().lower())
-    warnings: list[str] = []
-    referenced_assets: set[PurePosixPath] = set()
+    link_rewriter = LinkTargetRewriter(document, manifest)
     headings: list[tuple[int, str, str]] = []
     slug_counts: dict[str, int] = {}
 
@@ -47,14 +37,7 @@ def render_document(document: Document, manifest: SiteManifest) -> RenderedPage:
             continue
 
         if token.type == "html_block":
-            token.content = _rewrite_raw_html_targets(
-                token.content,
-                document,
-                document_lookup,
-                document_output_lookup,
-                referenced_assets,
-                warnings,
-            )
+            token.content = link_rewriter.rewrite_raw_html_targets(token.content)
             continue
 
         if token.type != "inline" or not token.children:
@@ -66,35 +49,16 @@ def render_document(document: Document, manifest: SiteManifest) -> RenderedPage:
                 if isinstance(href, str) and href:
                     child.attrSet(
                         "href",
-                        _rewrite_local_target(
-                            raw_url=href,
-                            document=document,
-                            document_lookup=document_lookup,
-                            referenced_assets=referenced_assets,
-                            warnings=warnings,
-                        ),
+                        link_rewriter.rewrite_local_target(href),
                     )
             elif child.type == "html_inline":
-                child.content = _rewrite_raw_html_targets(
-                    child.content,
-                    document,
-                    document_lookup,
-                    document_output_lookup,
-                    referenced_assets,
-                    warnings,
-                )
+                child.content = link_rewriter.rewrite_raw_html_targets(child.content)
             elif child.type == "image":
                 src = child.attrGet("src")
                 if isinstance(src, str) and src:
                     child.attrSet(
                         "src",
-                        _rewrite_local_target(
-                            raw_url=src,
-                            document=document,
-                            document_lookup=document_lookup,
-                            referenced_assets=referenced_assets,
-                            warnings=warnings,
-                        ),
+                        link_rewriter.rewrite_local_target(src),
                     )
 
     content_html = parser.renderer.render(tokens, parser.options, {})
@@ -108,8 +72,8 @@ def render_document(document: Document, manifest: SiteManifest) -> RenderedPage:
         title=title,
         content_html=content_html,
         toc_html=toc_html,
-        referenced_assets=referenced_assets,
-        warnings=warnings,
+        referenced_assets=link_rewriter.referenced_assets,
+        warnings=link_rewriter.warnings,
     )
 
 
@@ -196,94 +160,6 @@ def _slugify_heading(text: str) -> str:
             parts.append("-")
             last_was_separator = True
     return "".join(parts).strip("-")
-
-
-def _rewrite_raw_html_targets(
-    content: str,
-    document: Document,
-    document_lookup: dict[str, Document],
-    document_output_lookup: set[str],
-    referenced_assets: set[PurePosixPath],
-    warnings: list[str],
-) -> str:
-    def rewrite_target(target: str) -> str:
-        if _target_points_to_generated_page(target, document, document_output_lookup):
-            return target
-        return _rewrite_local_target(
-            raw_url=target,
-            document=document,
-            document_lookup=document_lookup,
-            referenced_assets=referenced_assets,
-            warnings=warnings,
-        )
-
-    return rewrite_local_targets(content, rewrite_target)
-
-
-def _target_points_to_generated_page(
-    raw_url: str,
-    document: Document,
-    document_output_lookup: set[str],
-) -> bool:
-    parsed = urlsplit(raw_url)
-    if parsed.scheme or parsed.netloc or not parsed.path or parsed.path.startswith("/"):
-        return False
-    decoded_path = decode_url_path(parsed.path)
-    output_path = _resolve_relative_path(document.output_path.parent, decoded_path)
-    if _points_outside_tree(output_path):
-        return False
-    output_label = output_path.as_posix().lower()
-    if output_label in document_output_lookup:
-        return True
-    return (output_path / "index.html").as_posix().lower() in document_output_lookup
-
-
-def _rewrite_local_target(
-    raw_url: str,
-    document: Document,
-    document_lookup: dict[str, Document],
-    referenced_assets: set[PurePosixPath],
-    warnings: list[str],
-) -> str:
-    if raw_url.startswith("#"):
-        return raw_url
-
-    parsed = urlsplit(raw_url)
-    if parsed.scheme or parsed.netloc:
-        return raw_url
-
-    if not parsed.path:
-        return raw_url
-
-    if parsed.path.startswith("/"):
-        warnings.append(f"Local link points outside the input tree: {raw_url}")
-        return raw_url
-
-    decoded_path = decode_url_path(parsed.path)
-    resolved_path = _resolve_relative_path(document.relative_source_path.parent, decoded_path)
-    if _points_outside_tree(resolved_path):
-        warnings.append(f"Local link points outside the input tree: {raw_url}")
-        return raw_url
-
-    if resolved_path.suffix.lower() == ".md":
-        target_document = document_lookup.get(resolved_path.as_posix().lower())
-        if target_document is None:
-            return raw_url
-        rewritten_path = relative_output_link(document.output_path, target_document.output_path)
-        return urlunsplit(("", "", rewritten_path, parsed.query, parsed.fragment))
-
-    referenced_assets.add(resolved_path)
-    return raw_url
-
-
-def _resolve_relative_path(base_dir: PurePosixPath, raw_path: str) -> PurePosixPath:
-    joined = posixpath.normpath(posixpath.join(base_dir.as_posix(), raw_path))
-    return PurePosixPath(joined)
-
-
-def _points_outside_tree(relative_path: PurePosixPath) -> bool:
-    normalized = relative_path.as_posix()
-    return normalized == ".." or normalized.startswith(("../", "/"))
 
 
 def _render_fence(

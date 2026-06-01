@@ -12,25 +12,16 @@ from typing import Any, Callable, TextIO
 from urllib.parse import unquote, urlsplit
 
 from md_for_human.review import SCHEMA_VERSION
-from md_for_human.review.annotations import normalize_artifact_shape
 from md_for_human.builder import build_site_preserving_review
-from md_for_human.review.archive import append_archived_annotations, split_inactive_annotations
 from md_for_human.review.client_assets import inject_review_client
 from md_for_human.review.constants import LOCAL_REVIEW_HOST, REVIEW_API_PREFIX, TOKEN_HEADER
-from md_for_human.review.artifacts import (
-    annotations_path,
-    empty_artifact,
-    write_json_atomic,
-)
 from md_for_human.review.source_watch import snapshot_source_tree
-from md_for_human.review.summary import write_review_summary
+from md_for_human.review.store import ReviewArtifactStore, ReviewArtifactStoreError
 from md_for_human.review.validate import (
     ReviewValidationResult,
     is_safe_relative_posix_path,
     load_json_file,
-    parse_manifest_documents,
     validate_review,
-    validate_review_artifact,
 )
 
 
@@ -83,6 +74,7 @@ class ReviewServerApp:
         self.manifest_path = self.output_dir / ".md-for-human" / "manifest.json"
         if not self.manifest_path.exists():
             raise ReviewServerError(f"manifest.json is missing in {self.output_dir}")
+        self.artifacts = ReviewArtifactStore(self.output_dir, self.manifest_path)
         self._ensure_artifact()
 
     def get_state(self, *, token: str) -> dict[str, Any]:
@@ -109,25 +101,21 @@ class ReviewServerApp:
                 "review server writes only mdfh-review-v2 artifacts",
                 errors=["annotations.json: browser review writes only mdfh-review-v2"],
             )
-        normalized_artifact = self._normalize_review_artifact(artifact)
-        documents = self._manifest_documents_for_archive()
-        writable_artifact, archived_annotations = split_inactive_annotations(
-            normalized_artifact,
-            documents,
-        )
-        result = validate_review_artifact(self.output_dir, writable_artifact, write_summary=False)
-        if result.errors:
+        try:
+            save_result = self.artifacts.save_browser_artifact(artifact)
+        except ReviewArtifactStoreError as exc:
+            raise ReviewServerError(str(exc), errors=exc.errors) from exc
+        if save_result.validation.errors:
             raise ReviewServerError(
                 "review artifact has hard validation errors",
-                errors=result.errors,
+                errors=save_result.validation.errors,
             )
-        append_archived_annotations(self.output_dir, archived_annotations)
-        write_json_atomic(annotations_path(self.output_dir), writable_artifact)
-        summary_path = write_review_summary(self.output_dir, writable_artifact)
-        validation = browser_save_validation_payload(result)
-        validation["summary_path"] = str(summary_path)
+        validation = browser_save_validation_payload(save_result.validation)
+        validation["summary_path"] = (
+            str(save_result.summary_path) if save_result.summary_path is not None else None
+        )
         return {
-            "artifact": writable_artifact,
+            "artifact": save_result.artifact,
             "validation": validation,
         }
 
@@ -165,98 +153,10 @@ class ReviewServerApp:
         return entry_page
 
     def _ensure_artifact(self) -> dict[str, Any]:
-        path = annotations_path(self.output_dir)
-        if not path.exists():
-            artifact = empty_artifact()
-            write_json_atomic(path, artifact)
-            return artifact
-        errors: list[str] = []
-        loaded_artifact = load_json_file(path, errors)
-        if not isinstance(loaded_artifact, dict):
-            raise ReviewServerError("annotations.json is invalid", errors=errors)
-        active_artifact = self._archive_inactive_annotations(
-            self._normalize_review_artifact(loaded_artifact)
-        )
-        if active_artifact != loaded_artifact:
-            write_json_atomic(annotations_path(self.output_dir), active_artifact)
-            self._write_review_summary_if_valid(active_artifact)
-        return active_artifact
-
-    def _normalize_review_artifact(self, artifact: dict[str, Any]) -> dict[str, Any]:
-        schema_version = artifact.get("schema_version")
-        if schema_version is not None and schema_version != SCHEMA_VERSION:
-            return artifact
-        annotations = artifact.get("annotations")
-        if not isinstance(annotations, list):
-            return artifact
-
-        manifest_errors: list[str] = []
-        manifest = load_json_file(self.manifest_path, manifest_errors)
-        documents = parse_manifest_documents(manifest, manifest_errors)
-        if manifest_errors:
-            return artifact
-
-        return normalize_artifact_shape(artifact, documents)
-
-    def _archive_inactive_annotations(
-        self,
-        artifact: dict[str, Any],
-        *,
-        write_updates: bool = True,
-        write_archive: bool = True,
-    ) -> dict[str, Any]:
-        if artifact.get("schema_version") != SCHEMA_VERSION:
-            return artifact
-        annotations = artifact.get("annotations")
-        if not isinstance(annotations, list):
-            return artifact
-
-        manifest_errors: list[str] = []
-        manifest = load_json_file(self.manifest_path, manifest_errors)
-        documents = parse_manifest_documents(manifest, manifest_errors)
-        if manifest_errors:
-            return artifact
-
-        cleaned_artifact, archived_annotations = split_inactive_annotations(artifact, documents)
-        if not archived_annotations and cleaned_artifact == artifact:
-            return artifact
-
-        if write_updates:
-            # Prefer no data loss across the two-file update: archive first, then
-            # remove from active annotations.
-            append_archived_annotations(self.output_dir, archived_annotations)
-            write_json_atomic(annotations_path(self.output_dir), cleaned_artifact)
-            self._write_review_summary_if_valid(cleaned_artifact, documents=documents)
-        elif write_archive and archived_annotations:
-            append_archived_annotations(self.output_dir, archived_annotations)
-        return cleaned_artifact
-
-    def _write_review_summary_if_valid(
-        self,
-        artifact: dict[str, Any],
-        *,
-        documents: dict[str, Any] | None = None,
-    ) -> None:
-        result = validate_review_artifact(
-            self.output_dir,
-            artifact,
-            documents=documents,
-            write_summary=False,
-        )
-        if result.errors:
-            return
-        write_review_summary(self.output_dir, artifact)
-
-    def _manifest_documents_for_archive(self) -> dict[str, Any]:
-        manifest_errors: list[str] = []
-        manifest = load_json_file(self.manifest_path, manifest_errors)
-        documents = parse_manifest_documents(manifest, manifest_errors)
-        if manifest_errors:
-            raise ReviewServerError(
-                "manifest.json is invalid",
-                errors=manifest_errors,
-            )
-        return documents
+        try:
+            return self.artifacts.ensure_artifact()
+        except ReviewArtifactStoreError as exc:
+            raise ReviewServerError(str(exc), errors=exc.errors) from exc
 
     def _site_path_from_url(self, relative_url_path: str) -> PurePosixPath:
         raw_path = unquote(urlsplit(relative_url_path).path).lstrip("/")
@@ -323,6 +223,7 @@ class ReviewServerApp:
         self._last_source_snapshot = current_snapshot
         self._pending_source_snapshot = None
         self.manifest_path = self.output_dir / ".md-for-human" / "manifest.json"
+        self.artifacts = ReviewArtifactStore(self.output_dir, self.manifest_path)
         self._ensure_artifact()
 
 
